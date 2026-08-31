@@ -525,6 +525,7 @@ extern "C" LONG_PTR GetWindowLongPtrW(HWND hwnd, int index) {
         case GWL_EXSTYLE:  return (LONG_PTR)w->exStyle;
         case GWL_WNDPROC:  return (LONG_PTR)w->proc;
         case GWL_ID:       return w->id;
+        case GWL_USERDATA: return w->userData;
         default: break;
     }
     // Anything positive is an offset into the window's extra bytes, which is
@@ -543,6 +544,10 @@ extern "C" LONG_PTR SetWindowLongPtrW(HWND hwnd, int index, LONG_PTR value) {
         case GWL_EXSTYLE: w->exStyle = (DWORD)value; return was;
         case GWL_WNDPROC: w->proc = (WNDPROC)value; return was;
         case GWL_ID:      w->id = (int)value; return was;
+        // Negative and not an offset into the extra bytes.  Dropping it left
+        // the command selector without the context it keeps there, so it
+        // answered nothing and never closed.
+        case GWL_USERDATA: w->userData = value; return was;
         default: break;
     }
     if (index >= 0 && (size_t)(index / (int)sizeof(LONG_PTR)) < w->extra.size())
@@ -869,8 +874,14 @@ extern "C" HDC BeginPaint(HWND hwnd, LPPAINTSTRUCT ps) {
             HBRUSH brush = nullptr;
             auto it = state().classes.find(w->className);
             if (it != state().classes.end()) brush = it->second.background;
-            const RECT client = clientRect(*w);
-            FillRect(hdc, &client, brush);
+            // Only the part being repainted.  Erasing the whole client while
+            // the window redraws just its update rectangle leaves the rest
+            // blank - which is how half the tool palette went grey when one
+            // of its buttons was clicked.
+            RECT area = ps->rcPaint;
+            if (area.right <= area.left || area.bottom <= area.top)
+                area = clientRect(*w);
+            FillRect(hdc, &area, brush);
         }
     }
 

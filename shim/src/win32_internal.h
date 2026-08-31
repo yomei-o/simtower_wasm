@@ -152,6 +152,7 @@ struct Window {
     bool destroyed = false;
     bool topmost = false;              // the band it sits in, not a position
 
+    LONG_PTR userData = 0;             // GWLP_USERDATA, which is not an offset
     std::vector<LONG_PTR> extra;       // cbWndExtra and the dialog's DWLP_*
     std::map<std::wstring, HANDLE> props;
     std::vector<HWND> children;
