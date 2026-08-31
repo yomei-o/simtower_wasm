@@ -27,6 +27,14 @@ const executable = process.argv[4];
 const waitMs = Number(process.argv[5] || 400);
 const actions = process.argv.slice(6);
 
+// Shift and Control, held across the actions that follow a `mods:` action.
+// The game reads them at the press: Control on the first lobby builds a
+// two-story one, Shift replaces a facility in place.
+let modifiers = 0;
+let wasm = null;
+const injectMouse = (type, x, y, button) =>
+  wasm._simtowerInjectMouse(type, x, y, button, modifiers);
+
 let presented = null;
 
 class FakeImageData {
@@ -107,6 +115,7 @@ function writePng(file, width, height, rgba) {
   });
 
   console.log('runtime up; calling main');
+  wasm = Module;
   Module.callMain([]);
 
   if (executable) {
@@ -159,53 +168,53 @@ function writePng(file, width, height, rgba) {
         await settle(Number(parts[0] || 100));
         break;
       case 'move':
-        Module._simtowerInjectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
+        injectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
         await settle(50);
         break;
       case 'click':
         // Move first: a control that tracks the pointer has to see it arrive
         // before it is pressed, exactly as it would from a real mouse.
-        Module._simtowerInjectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
+        injectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
         await settle(30);
-        Module._simtowerInjectMouse(MOUSEDOWN, +parts[0], +parts[1], 0);
+        injectMouse(MOUSEDOWN, +parts[0], +parts[1], 0);
         await settle(60);
-        Module._simtowerInjectMouse(MOUSEUP, +parts[0], +parts[1], 0);
+        injectMouse(MOUSEUP, +parts[0], +parts[1], 0);
         await settle(120);
         break;
       case 'press':
         // Press and hold: the command selector is only up while the button is
         // down, so seeing what is in a group needs the two halves apart.
-        Module._simtowerInjectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
+        injectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
         await settle(40);
-        Module._simtowerInjectMouse(MOUSEDOWN, +parts[0], +parts[1], 0);
+        injectMouse(MOUSEDOWN, +parts[0], +parts[1], 0);
         await settle(150);
         break;
       case 'release':
-        Module._simtowerInjectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
+        injectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
         await settle(60);
-        Module._simtowerInjectMouse(MOUSEUP, +parts[0], +parts[1], 0);
+        injectMouse(MOUSEUP, +parts[0], +parts[1], 0);
         await settle(250);
         break;
       case 'drag': {
         // Press, move in steps, release - which is the only way to test
         // anything that tracks the pointer while a button is held.
         const [x1, y1, x2, y2] = parts.map(Number);
-        Module._simtowerInjectMouse(MOUSEMOVE, x1, y1, 0);
+        injectMouse(MOUSEMOVE, x1, y1, 0);
         await settle(30);
-        Module._simtowerInjectMouse(MOUSEDOWN, x1, y1, 0);
+        injectMouse(MOUSEDOWN, x1, y1, 0);
         await settle(60);
         for (let step = 1; step <= 8; step++) {
           const x = Math.round(x1 + (x2 - x1) * step / 8);
           const y = Math.round(y1 + (y2 - y1) * step / 8);
-          Module._simtowerInjectMouse(MOUSEMOVE, x, y, 0);
+          injectMouse(MOUSEMOVE, x, y, 0);
           await settle(40);
         }
-        Module._simtowerInjectMouse(MOUSEUP, x2, y2, 0);
+        injectMouse(MOUSEUP, x2, y2, 0);
         await settle(200);
         break;
       }
       case 'dbl':
-        Module._simtowerInjectMouse(DBLCLICK, +parts[0], +parts[1], 0);
+        injectMouse(DBLCLICK, +parts[0], +parts[1], 0);
         await settle(120);
         break;
       case 'key': {
@@ -223,6 +232,14 @@ function writePng(file, width, height, rgba) {
       case 'shot':
         save(rest);
         break;
+      case 'mods': {
+        // mods:ctrl  mods:ctrl+shift  mods:none
+        const names = (rest || '').toLowerCase().split('+');
+        modifiers = (names.includes('shift') ? 1 : 0) |
+                    (names.includes('ctrl') ? 2 : 0);
+        console.log('modifiers', modifiers);
+        break;
+      }
       case 'dump':
         Module._simtowerDumpWindows();
         break;

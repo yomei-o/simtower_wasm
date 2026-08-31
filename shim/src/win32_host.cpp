@@ -245,13 +245,16 @@ EM_BOOL onKey(int type, const EmscriptenKeyboardEvent * e, void *) {
    test.                                                                     */
 
 extern "C" EMSCRIPTEN_KEEPALIVE
-void simtowerInjectMouse(int type, int x, int y, int button) {
+void simtowerInjectMouse(int type, int x, int y, int button, int modifiers) {
     EmscriptenMouseEvent e{};
     e.targetX = x;
     e.targetY = y;
     e.clientX = x;
     e.clientY = y;
     e.button = (unsigned short)button;
+    // Bit 0 is Shift and bit 1 Control, which is all the game reads.
+    e.shiftKey = (modifiers & 1) ? EM_TRUE : EM_FALSE;
+    e.ctrlKey = (modifiers & 2) ? EM_TRUE : EM_FALSE;
     onMouse(type, &e, nullptr);
 }
 
