@@ -81,6 +81,10 @@ cmake --build build --target simtower_game --parallel 4
 cp docs/simtower_game.html docs/index.html
 ```
 
+This has been run from a fresh clone: those five lines produce a page that is
+**byte-identical** to the one deployed, so the repository is self-contained and
+the pinned fork is the fork the build actually gets.
+
 `tools/build_assets.sh` is not optional: it writes
 `upstream/port/generated/original_resources.generated.hpp`, without which
 nothing configures. It needs Python and the upstream tools.
