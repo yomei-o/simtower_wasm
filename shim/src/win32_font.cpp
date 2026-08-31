@@ -81,16 +81,25 @@ void drawText(DeviceContext & d, int x, int y, const char * utf8, int count) {
 
     const SIZE extent = measureText(d, utf8, count);
 
+    // With TA_UPDATECP the position passed in is ignored entirely and the DC's
+    // current position is used - the port sets that alignment on the info bar,
+    // the palettes and the dialogs, then draws every string as TextOut(dc, 0,
+    // 0, ...) after a MoveToEx.  Reading the pen only after drawing, and never
+    // before it, put all of that text in the top-left corner: the funds, the
+    // population and the date were being drawn, just not where they belong.
+    const int startX = (d.textAlign & TA_UPDATECP) ? (int)d.current.x : x;
+    const int startY = (d.textAlign & TA_UPDATECP) ? (int)d.current.y : y;
+
     // Windows places text by the alignment set on the DC, and the port sets
     // TA_RIGHT and TA_BASELINE in places where getting this wrong would put a
     // number in the wrong column.
-    int penX = x;
-    if ((d.textAlign & TA_CENTER) == TA_CENTER) penX = x - extent.cx / 2;
-    else if (d.textAlign & TA_RIGHT)            penX = x - extent.cx;
+    int penX = startX;
+    if ((d.textAlign & TA_CENTER) == TA_CENTER) penX = startX - extent.cx / 2;
+    else if (d.textAlign & TA_RIGHT)            penX = startX - extent.cx;
 
-    int lineTop = y;
-    if (d.textAlign & TA_BASELINE)      lineTop = y - face.ascent;
-    else if (d.textAlign & TA_BOTTOM)   lineTop = y - extent.cy;
+    int lineTop = startY;
+    if (d.textAlign & TA_BASELINE)      lineTop = startY - face.ascent;
+    else if (d.textAlign & TA_BOTTOM)   lineTop = startY - extent.cy;
 
     if (d.bkMode == OPAQUE)
         fillRect(d, RECT{penX, lineTop, penX + extent.cx, lineTop + extent.cy},
@@ -120,7 +129,7 @@ void drawText(DeviceContext & d, int x, int y, const char * utf8, int count) {
     // how the port draws a run of numbers without recomputing each position.
     if (d.textAlign & TA_UPDATECP) {
         d.current.x = penX;
-        d.current.y = y;
+        d.current.y = startY;
     }
 }
 
