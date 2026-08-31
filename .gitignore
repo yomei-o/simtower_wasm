@@ -3,3 +3,5 @@ build/
 *.pack
 env.sh
 build-native/
+docs/simtower.html
+docs/simtower_game.html
