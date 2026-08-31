@@ -1313,6 +1313,7 @@ UINT     GetSystemPaletteEntries(HDC dc, UINT start, UINT count,
 #define RC_DI_BITMAP  128
 #define RC_PALETTE    256
 #define RC_DIBTODEV   512
+#define RC_STRETCHBLT 2048
 #define RC_STRETCHDIB 8192
 
 int GetDeviceCaps(HDC dc, int index);

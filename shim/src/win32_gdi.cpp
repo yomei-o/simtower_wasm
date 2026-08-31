@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <vector>
 
 namespace shim {
 
@@ -861,27 +862,96 @@ extern "C" BOOL GetTextMetricsA(HDC hdc, LPTEXTMETRICA tm) {
     return TRUE;
 }
 
+// The lines a run of text becomes: at every newline it carries, and - unless it
+// asked to stay on one line - at the last space that still fits the width.
+// Without this a dialog's paragraph of explanation was drawn as one line
+// running out of its own window, which is most of what a dialog says.
+static std::vector<std::string> layOutLines(DeviceContext & d,
+                                            const std::string & s, int width,
+                                            UINT format) {
+    std::vector<std::string> lines;
+    if (format & DT_SINGLELINE) { lines.push_back(s); return lines; }
+
+    size_t start = 0;
+    while (start <= s.size()) {
+        size_t newline = s.find('\n', start);
+        std::string paragraph = s.substr(start, newline == std::string::npos
+                                              ? std::string::npos
+                                              : newline - start);
+        if (!paragraph.empty() && paragraph.back() == '\r') paragraph.pop_back();
+
+        if (!(format & DT_WORDBREAK) || width <= 0) {
+            lines.push_back(paragraph);
+        } else {
+            size_t at = 0;
+            while (at < paragraph.size()) {
+                size_t fits = paragraph.size() - at;
+                size_t breakAt = std::string::npos;
+                for (size_t n = 1; n <= paragraph.size() - at; n++) {
+                    const SIZE extent =
+                        measureText(d, paragraph.c_str() + at, (int)n);
+                    if (extent.cx > width) { fits = n - 1; break; }
+                    if (paragraph[at + n - 1] == ' ') breakAt = n;
+                }
+                if (fits >= paragraph.size() - at) {
+                    lines.push_back(paragraph.substr(at));
+                    break;
+                }
+                // Back up to the last space that still fitted; a single word
+                // too long for the width is cut rather than lost.
+                size_t take = (breakAt != std::string::npos && breakAt <= fits)
+                            ? breakAt : std::max<size_t>(1, fits);
+                std::string line = paragraph.substr(at, take);
+                while (!line.empty() && line.back() == ' ') line.pop_back();
+                lines.push_back(line);
+                at += take;
+                while (at < paragraph.size() && paragraph[at] == ' ') at++;
+            }
+            if (paragraph.empty()) lines.push_back(std::string());
+        }
+
+        if (newline == std::string::npos) break;
+        start = newline + 1;
+    }
+    return lines;
+}
+
 static int drawTextCommon(DeviceContext & d, const std::string & s, LPRECT r,
                           UINT format) {
-    SIZE extent = measureText(d, s.c_str(), (int)s.size());
+    const std::vector<std::string> lines =
+        layOutLines(d, s, r->right - r->left, format);
+    const int lineHeight = measureText(d, "", 0).cy;
+    const int height = lineHeight * (int)lines.size();
+
+    int widest = 0;
+    for (const std::string & line : lines)
+        widest = std::max<int>(widest,
+                               measureText(d, line.c_str(), (int)line.size()).cx);
+
     if (format & DT_CALCRECT) {
-        r->right = r->left + extent.cx;
-        r->bottom = r->top + extent.cy;
-        return extent.cy;
+        r->right = r->left + widest;
+        r->bottom = r->top + height;
+        return height;
     }
-    int x = r->left;
-    if (format & DT_CENTER) x = r->left + ((r->right - r->left) - extent.cx) / 2;
-    else if (format & DT_RIGHT) x = r->right - extent.cx;
 
     int y = r->top;
-    if (format & DT_VCENTER) y = r->top + ((r->bottom - r->top) - extent.cy) / 2;
-    else if (format & DT_BOTTOM) y = r->bottom - extent.cy;
+    if (format & DT_VCENTER) y = r->top + ((r->bottom - r->top) - height) / 2;
+    else if (format & DT_BOTTOM) y = r->bottom - height;
 
     const UINT savedAlign = d.textAlign;
     d.textAlign = TA_LEFT | TA_TOP;
-    drawText(d, x, y, s.c_str(), (int)s.size());
+    for (const std::string & line : lines) {
+        const int lineWidth = measureText(d, line.c_str(), (int)line.size()).cx;
+        int x = r->left;
+        if (format & DT_CENTER)
+            x = r->left + ((r->right - r->left) - lineWidth) / 2;
+        else if (format & DT_RIGHT)
+            x = r->right - lineWidth;
+        drawText(d, x, y, line.c_str(), (int)line.size());
+        y += lineHeight;
+    }
     d.textAlign = savedAlign;
-    return extent.cy;
+    return height;
 }
 
 extern "C" int DrawTextW(HDC hdc, LPCWSTR text, int count, LPRECT r, UINT format) {

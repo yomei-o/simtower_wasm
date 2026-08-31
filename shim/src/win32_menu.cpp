@@ -185,11 +185,57 @@ extern "C" BOOL DrawMenuBar(HWND hwnd) {
     return TRUE;
 }
 
-extern "C" HACCEL CreateAcceleratorTableW(LPACCEL, int) {
-    return (HACCEL)(void *)state().allocate();
+// The accelerator tables handed out, kept rather than counted: the game builds
+// one from ACCELERATOR/TOWER_MENU and every keyboard shortcut it has runs
+// through it.  Answering zero to TranslateAccelerator meant none of them
+// worked, and the menu items they belong to gave no hint of that.
+std::map<uintptr_t, std::vector<ACCEL>> g_accelerators;
+
+extern "C" HACCEL CreateAcceleratorTableW(LPACCEL entries, int count) {
+    const uintptr_t handle = state().allocate();
+    std::vector<ACCEL> table;
+    if (entries && count > 0) table.assign(entries, entries + count);
+    g_accelerators[handle] = std::move(table);
+    return (HACCEL)handle;
 }
-extern "C" BOOL DestroyAcceleratorTable(HACCEL) { return TRUE; }
-extern "C" int TranslateAcceleratorW(HWND, HACCEL, LPMSG) { return 0; }
+
+extern "C" BOOL DestroyAcceleratorTable(HACCEL handle) {
+    return g_accelerators.erase((uintptr_t)handle) != 0;
+}
+
+extern "C" int TranslateAcceleratorW(HWND window, HACCEL handle, LPMSG msg) {
+    if (!window || !msg) return 0;
+    if (msg->message != WM_KEYDOWN && msg->message != WM_SYSKEYDOWN &&
+        msg->message != WM_CHAR && msg->message != WM_SYSCHAR)
+        return 0;
+    auto it = g_accelerators.find((uintptr_t)handle);
+    if (it == g_accelerators.end()) return 0;
+
+    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+
+    for (const ACCEL & entry : it->second) {
+        if (entry.fVirt & FVIRTKEY) {
+            // A virtual-key entry matches the key itself, with the modifiers
+            // it asks for and none of the ones it does not.
+            if (msg->message != WM_KEYDOWN && msg->message != WM_SYSKEYDOWN)
+                continue;
+            if ((WORD)msg->wParam != entry.key) continue;
+            if (((entry.fVirt & FSHIFT) != 0) != shift) continue;
+            if (((entry.fVirt & FCONTROL) != 0) != control) continue;
+            if (((entry.fVirt & FALT) != 0) != alt) continue;
+        } else {
+            if (msg->message != WM_CHAR && msg->message != WM_SYSCHAR) continue;
+            if ((WORD)msg->wParam != entry.key) continue;
+        }
+        // Accelerators arrive as a menu command, which is where the port's
+        // window procedure already handles the same items.
+        send(window, WM_COMMAND, MAKEWPARAM(entry.cmd, 1), 0);
+        return 1;
+    }
+    return 0;
+}
 
 
 /* ------------------------------------------------------------ menu drawing */
@@ -373,26 +419,6 @@ extern "C" BOOL TrackPopupMenu(HMENU handle, UINT, int x, int, int, HWND hwnd,
     return TRUE;
 }
 
-
-/* ------------------------------------------------- dialogs, for the moment */
-
-extern "C" int MessageBoxA(HWND, LPCSTR text, LPCSTR caption, UINT type) {
-    // Reported rather than drawn, until there is a dialog manager to draw it
-    // in.  Answering the default button is what lets the game continue instead
-    // of waiting for a click that can never arrive.
-    fprintf(stderr, "[MessageBox] %s: %s\n", caption ? caption : "",
-            text ? text : "");
-    if (type & MB_YESNO) return IDYES;
-    if (type & MB_OKCANCEL) return IDOK;
-    if (type & MB_RETRYCANCEL) return IDRETRY;
-    return IDOK;
-}
-
-extern "C" int MessageBoxW(HWND hwnd, LPCWSTR text, LPCWSTR caption, UINT type) {
-    const std::string t = toUtf8(text);
-    const std::string c = toUtf8(caption);
-    return MessageBoxA(hwnd, t.c_str(), c.c_str(), type);
-}
 
 extern "C" void FatalAppExitA(UINT, LPCSTR text) {
     fprintf(stderr, "[FatalAppExit] %s\n", text ? text : "");

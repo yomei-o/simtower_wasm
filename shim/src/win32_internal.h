@@ -298,6 +298,7 @@ void    paintScrollBar(DeviceContext & d, RECT r, const SCROLLINFO & info,
 int     scrollBarHit(RECT r, POINT p, const SCROLLINFO & info, bool vertical);
 bool    controlHitTransparent(const Window & w);
 void    dialogSetInitialFocus(HWND dialog);
+INT_PTR runModalLoop(HWND dialog);
 
 /* Menus.  One row height serves the caption, the menu bar and a popup line,
    which is what Windows 3.1 did and what keeps the three lined up. */

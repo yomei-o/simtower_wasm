@@ -14,6 +14,7 @@
 
 #include <emscripten.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -161,9 +162,16 @@ HWND buildDialog(const DLGTEMPLATE * tmpl, HWND parent, DLGPROC proc,
     if (Window * again = window(dialog)) invalidate(*again, nullptr, true);
 
     if (!modal) return dialog;
+    return (HWND)(uintptr_t)runModalLoop(dialog);
+}
 
-    // Modal: pump until EndDialog.  Bounded by the window still existing, so a
-    // dialog that is destroyed rather than ended does not spin for ever.
+}   // namespace
+
+
+// Pump until EndDialog, then take the answer down with the window.  Bounded by
+// the window still existing, so a dialog that is destroyed rather than ended
+// does not spin for ever.
+INT_PTR runModalLoop(HWND dialog) {
     for (;;) {
         Window * live = window(dialog);
         if (!live || live->dialogEnded) break;
@@ -184,10 +192,140 @@ HWND buildDialog(const DLGTEMPLATE * tmpl, HWND parent, DLGPROC proc,
         result = live->dialogResult;
         DestroyWindow(dialog);
     }
-    return (HWND)(uintptr_t)result;
+    return result;
+}
+
+
+/* --------------------------------------------------------------- MessageBox
+
+   Reported to stderr and answered with the default button, until now.  That is
+   a bad answer to give silently: the game asks whether to replace an existing
+   save, and whether to carry on without sound, and it asks with this.        */
+
+namespace {
+
+INT_PTR CALLBACK messageBoxProc(HWND dialog, UINT message, WPARAM wp, LPARAM) {
+    if (message == WM_COMMAND) {
+        EndDialog(dialog, (INT_PTR)LOWORD(wp));
+        return TRUE;
+    }
+    return FALSE;
+}
+
+struct MessageBoxButton { int id; const wchar_t * label; };
+
+int messageBoxButtons(UINT type, MessageBoxButton * out) {
+    switch (type & 0x0f) {
+        case MB_OKCANCEL:
+            out[0] = {IDOK, L"OK"};
+            out[1] = {IDCANCEL, L"Cancel"};
+            return 2;
+        case MB_ABORTRETRYIGNORE:
+            out[0] = {IDABORT, L"Abort"};
+            out[1] = {IDRETRY, L"Retry"};
+            out[2] = {IDIGNORE, L"Ignore"};
+            return 3;
+        case MB_YESNOCANCEL:
+            out[0] = {IDYES, L"Yes"};
+            out[1] = {IDNO, L"No"};
+            out[2] = {IDCANCEL, L"Cancel"};
+            return 3;
+        case MB_YESNO:
+            out[0] = {IDYES, L"Yes"};
+            out[1] = {IDNO, L"No"};
+            return 2;
+        case MB_RETRYCANCEL:
+            out[0] = {IDRETRY, L"Retry"};
+            out[1] = {IDCANCEL, L"Cancel"};
+            return 2;
+        default:
+            out[0] = {IDOK, L"OK"};
+            return 1;
+    }
+}
+
+int runMessageBox(HWND owner, const std::wstring & text,
+                  const std::wstring & caption, UINT type) {
+    const int kMargin = 12;
+    const int kButtonWidth = 68;
+    const int kButtonHeight = 24;
+    const int kMaxText = 320;
+
+    MessageBoxButton buttons[3];
+    const int count = messageBoxButtons(type, buttons);
+
+    // The text decides the width, up to a point, and then the height.
+    RECT measured{0, 0, kMaxText, 0};
+    if (HDC screen = GetDC(nullptr)) {
+        DrawTextW(screen, text.c_str(), (int)text.size(), &measured,
+                  DT_CALCRECT | DT_WORDBREAK | DT_LEFT | DT_NOPREFIX);
+        ReleaseDC(nullptr, screen);
+    }
+    const int textWidth = std::max<int>(measured.right - measured.left, 120);
+    const int textHeight = std::max<int>(measured.bottom - measured.top, 16);
+    const int rowWidth = count * kButtonWidth + (count - 1) * 8;
+
+    const int clientWidth = std::max(textWidth, rowWidth) + kMargin * 2;
+    const int clientHeight = textHeight + kMargin * 2 + kButtonHeight + 8;
+    const int frame = 1;
+    const int width = clientWidth + frame * 2;
+    const int height = clientHeight + frame * 2 + kCaptionBarHeight;
+
+    State & s = state();
+    const int x = std::max(0, (s.screen.width - width) / 2);
+    const int y = std::max(0, (s.screen.height - height) / 3);
+
+    HWND dialog = CreateWindowExW(
+        0, L"#32770", caption.empty() ? L"SimTower" : caption.c_str(),
+        WS_POPUP | WS_CAPTION | WS_DLGFRAME | WS_VISIBLE,
+        x, y, width, height, owner, nullptr, nullptr, nullptr);
+    Window * w = window(dialog);
+    if (!w) return IDOK;
+    w->isDialog = true;
+    w->dialogProc = messageBoxProc;
+
+    CreateWindowExW(0, L"STATIC", text.c_str(),
+                    WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+                    kMargin, kMargin, clientWidth - kMargin * 2, textHeight,
+                    dialog, nullptr, nullptr, nullptr);
+
+    int bx = (clientWidth - rowWidth) / 2;
+    const int by = clientHeight - kMargin - kButtonHeight;
+    for (int i = 0; i < count; i++) {
+        HWND button = CreateWindowExW(
+            0, L"BUTTON", buttons[i].label,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP |
+                (i == 0 ? BS_DEFPUSHBUTTON : BS_PUSHBUTTON),
+            bx, by, kButtonWidth, kButtonHeight,
+            dialog, nullptr, nullptr, nullptr);
+        if (Window * c = window(button)) {
+            c->id = buttons[i].id;
+            c->controlClass = L"BUTTON";
+        }
+        bx += kButtonWidth + 8;
+    }
+
+    MessageBeep(type & 0xf0);
+    invalidate(*w, nullptr, true);
+    dialogSetInitialFocus(dialog);
+
+    const INT_PTR result = runModalLoop(dialog);
+    return result ? (int)result : buttons[0].id;
 }
 
 }   // namespace
+
+extern "C" int MessageBoxW(HWND owner, LPCWSTR text, LPCWSTR caption,
+                           UINT type) {
+    return runMessageBox(owner, text ? text : L"", caption ? caption : L"",
+                         type);
+}
+
+extern "C" int MessageBoxA(HWND owner, LPCSTR text, LPCSTR caption, UINT type) {
+    return runMessageBox(owner, fromUtf8(text ? text : ""),
+                         fromUtf8(caption ? caption : ""), type);
+}
+
 
 extern "C" HWND CreateDialogIndirectParamW(HINSTANCE, LPCDLGTEMPLATE tmpl,
                                            HWND parent, DLGPROC proc,
@@ -227,8 +365,11 @@ extern "C" int GetDeviceCaps(HDC, int index) {
             // Everything the port might branch on except palette support: there
             // is no hardware palette here, and claiming one would send it down a
             // path that expects RealizePalette to do something.
+            // RC_STRETCHBLT is one of the four the game insists on, and the
+            // shim does implement StretchBlt - leaving it out was what made
+            // SimTower warn about the display driver at every startup.
             return RC_BITBLT | RC_BITMAP64 | RC_DI_BITMAP | RC_DIBTODEV |
-                   RC_STRETCHDIB;
+                   RC_STRETCHBLT | RC_STRETCHDIB;
         default:          return 0;
     }
 }
