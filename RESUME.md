@@ -69,6 +69,7 @@ shim answers 256 Win32 entry points.
 |---|---|
 | Sound heard | It plays - submitted 1, started 1, context running, 50,300 frames of WAVE/20000 at startup - but nobody has listened. The game asks for no other sound in a one-star tower. |
 | The other dialogs | 51 templates; the startup chooser, Finance, About, the message boxes and the command selector have been opened. The rest arrive with events during play. |
+| Long status messages overflow | The info bar's status field is 262 pixels and the port does not clip to it, so a message wider than that runs under the Fund panel. The original fits because its font is narrower than the baked one; there is nothing to clip without clipping the port's own drawing. |
 | Higher ratings | Everything checked is a one-star tower. `TABL/1001` holds five catalog entries - one group of Lobby/Floor/Stairs and four single facilities - which is exactly what the palette shows. Elevators are in `TABL/1002`, so they need a two-star tower and a population to get there. |
 
 ## Setting up on another machine
@@ -310,7 +311,9 @@ inferred. `shim/src/win32_ne.cpp` carries the same table for building the pack
 1. **Play it to two stars.** Everything checked is a one-star tower, and the
    whole of the transport catalogue - elevators, escalators, the service
    elevator - is in `TABL/1002`, which needs a population to reach. Offices
-   build and sit "For sale"; tenants arrive over game days. This wants a long
+   build and sit "For sale"; tenants arrive over game days.  Note the one-star
+   group holds Lobby, Floor and *Escalator* - not stairs - and the game refuses
+   an escalator with "Escalators available only at commercial spaces". This wants a long
    scripted session rather than another fix, and it is the one large piece of
    the game nobody has seen run.
 2. **Hear the sound.** It plays - submitted 1, started 1, 50,300 frames at
