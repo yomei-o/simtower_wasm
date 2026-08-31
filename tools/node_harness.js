@@ -13,6 +13,8 @@ const zlib = require('zlib');
 const modulePath = path.resolve(process.argv[2]);
 const outputPath = process.argv[3] || 'frame.png';
 const executable = process.argv[4];
+// The game does a great deal at startup; the viewer does not.
+const waitMs = Number(process.argv[5] || 400);
 
 let presented = null;
 
@@ -108,7 +110,7 @@ function writePng(file, width, height, rgba) {
   // emscripten_set_main_loop falls back to setTimeout where there is no
   // requestAnimationFrame, so the loop runs on its own; this just waits for a
   // few frames of it.
-  await new Promise((r) => setTimeout(r, 300));
+  await new Promise((r) => setTimeout(r, waitMs));
 
   console.log('canvas', canvas.width + 'x' + canvas.height);
   if (!presented) {

@@ -50,6 +50,22 @@ typedef struct wavehdr_tag {
     DWORD_PTR reserved;
 } WAVEHDR, *LPWAVEHDR;
 
+#define MAXPNAMELEN 32
+
+typedef struct tagWAVEOUTCAPSW {
+    WORD  wMid, wPid;
+    DWORD vDriverVersion;
+    WCHAR szPname[MAXPNAMELEN];
+    DWORD dwFormats;
+    WORD  wChannels, wReserved1;
+    DWORD dwSupport;
+} WAVEOUTCAPSW, *LPWAVEOUTCAPSW;
+
+#define WAVE_FORMAT_4S16 0x00000C00
+#define WAVECAPS_VOLUME  0x0004
+
+MMRESULT waveOutGetDevCapsW(UINT_PTR device, LPWAVEOUTCAPSW caps, UINT size);
+
 MMRESULT waveOutOpen(HWAVEOUT * out, UINT deviceId, LPCWAVEFORMATEX format,
                      DWORD_PTR callback, DWORD_PTR instance, DWORD flags);
 MMRESULT waveOutClose(HWAVEOUT out);

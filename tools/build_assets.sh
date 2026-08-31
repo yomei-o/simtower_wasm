@@ -21,4 +21,10 @@ python "$UP/tools/build_resource_pack.py"    "$OUT/assets/catalog.json" "$OUT/ra
         "$GEN/original_resources.pack" \
         "$GEN/original_resources.generated.hpp" \
         "$GEN/original_resources.rc.in"
+# The generated table names SimTower's private types numerically, while the port
+# looks them up by their four-character names, so every one of those lookups
+# would come back empty.  See tools/name_private_types.py for the mapping and
+# how it was derived.
+python "$(dirname "$0")/name_private_types.py" "$GEN/original_resources.generated.hpp"
+
 echo "resource pack in $GEN"

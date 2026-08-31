@@ -12,8 +12,12 @@
 
 #include "win32_internal.h"
 
+#include "original_resources.generated.hpp"
+
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
+#include <string_view>
 
 namespace shim {
 
@@ -29,8 +33,52 @@ struct Entry {
 std::vector<BYTE> g_image;
 std::vector<Entry> g_entries;
 
+// The blob the port reads through generated::kResources.  Assembled rather than
+// shipped; see the note at the top of this file.
+std::vector<BYTE> g_pack;
+
 uint16_t rd16(const BYTE * p) {
     return (uint16_t)(p[0] | (p[1] << 8));
+}
+
+uint16_t typeNumberFor(std::string_view name) {
+    if (name == "CURSOR") return 1;
+    if (name == "BITMAP") return 2;
+    if (name == "ICON") return 3;
+    if (name == "MENU") return 4;
+    if (name == "DIALOG") return 5;
+    if (name == "STRING") return 6;
+    if (name == "ACCELERATOR") return 9;
+    if (name == "RCDATA") return 10;
+    if (name == "GROUP_CURSOR") return 12;
+    if (name == "GROUP_ICON") return 14;
+
+    // SimTower's private types.  Their ids really are 0xFF01..0xFF0B - the high
+    // bit marks an integer - and the four-character names are the port's own.
+    // tools/name_private_types.py carries the same mapping and how it was
+    // derived; the two have to agree or the pack comes out empty.
+    if (name == "ALRT") return 32513;
+    if (name == "CGPK") return 32514;
+    if (name == "CLUT") return 32515;
+    if (name == "DTMP") return 32516;
+    if (name == "PART") return 32517;
+    if (name == "STRL") return 32518;
+    if (name == "TABL") return 32519;
+    if (name == "TABM") return 32520;
+    if (name == "TEXT") return 32521;
+    if (name == "WAVE") return 32522;
+    if (name == "YEN")  return 32523;
+
+    // Anything the tools left numeric.
+    if (name.rfind("TYPE_", 0) == 0) {
+        uint16_t value = 0;
+        for (size_t i = 5; i < name.size(); i++) {
+            if (name[i] < '0' || name[i] > '9') return 0;
+            value = (uint16_t)(value * 10 + (name[i] - '0'));
+        }
+        return value;
+    }
+    return 0;
 }
 
 const char * typeNameFor(uint16_t type) {
@@ -50,6 +98,8 @@ const char * typeNameFor(uint16_t type) {
 }
 
 }   // namespace
+
+void buildResourcePack();
 
 // Returns false with a reason on stderr rather than throwing: the caller is a
 // file the player chose, and being told which way it is wrong is the point.
@@ -111,7 +161,52 @@ bool loadResourcesFromExecutable(const BYTE * data, size_t size) {
     state().pack = g_image.data();
     state().packSize = g_image.size();
     printf("SIMTOWER.EXE: %d resources\n", (int)g_entries.size());
+
+    buildResourcePack();
     return true;
+}
+
+// One pass over the generated table, copying each descriptor's bytes from the
+// executable to the offset the table names.  A descriptor with no matching
+// resource leaves its span zeroed, which the port sees as an empty resource
+// rather than as garbage.
+void buildResourcePack() {
+    size_t needed = 0;
+    for (const auto & descriptor : simtower::generated::kResources)
+        needed = std::max<size_t>(needed, (size_t)descriptor.offset + descriptor.size);
+
+    g_pack.assign(needed, 0);
+    size_t filled = 0;
+    size_t missing = 0;
+
+    for (const auto & descriptor : simtower::generated::kResources) {
+        const uint16_t type = typeNumberFor(descriptor.type);
+        const size_t index = type
+            ? findResourceIndex(type, (uint16_t)descriptor.numeric_id) : 0;
+        if (!index) { missing++; continue; }
+
+        size_t available = 0;
+        const BYTE * bytes = resourceAt(index - 1, &available);
+        if (!bytes) { missing++; continue; }
+
+        const size_t count = available < descriptor.size ? available
+                                                        : descriptor.size;
+        memcpy(g_pack.data() + descriptor.offset, bytes, count);
+        filled++;
+    }
+
+    printf("resource pack: %d of %d descriptors, %d bytes\n",
+           (int)filled, (int)simtower::generated::kResources.size(),
+           (int)g_pack.size());
+    if (missing)
+        printf("resource pack: %d descriptor(s) had no matching resource\n",
+               (int)missing);
+}
+
+const BYTE * resourcePack(size_t * size) {
+    if (g_pack.empty()) return nullptr;
+    if (size) *size = g_pack.size();
+    return g_pack.data();
 }
 
 size_t resourceCount() { return g_entries.size(); }

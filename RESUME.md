@@ -67,15 +67,61 @@ cmake --build build --target simtower_node --parallel 3
 node tools/node_harness.js build/node/simtower_node.js frame.png /path/to/SIMTOWER.EXE
 ```
 
-## Next task: the game's own host
+## The game's own host: building, linking, and running as far as the UI resources
+
+`native_main.cpp` compiles and links, and `WinMain` runs. It gets through
+startup capability checks, the resource pack, the PART table, the three YEN
+tables and all six TABL/TABM rating tables, and stops in
+`original_ui.cpp`'s reader with "Truncated original Win16 UI resource" - which is
+that reader running off the end of a resource, most likely an ICON or CURSOR
+reached through a GROUP directory whose ids are being read wrongly. That is the
+next thing to chase; `tools/node_harness.js` shows it in one run.
+
+Three things made this possible and are worth not undoing:
+
+* **Asyncify.** The port's dispatcher is `PeekMessage`, and simulate when there
+  is nothing to dispatch. `shim/src/win32_window.cpp` makes `PeekMessage` the
+  yield point: it publishes the frame and hands the thread back, rate-limited to
+  once every 16 ms so there is still time to simulate in. Upstream is explicit
+  that the recovered dispatcher stays unchanged, and this needs no patch against
+  it.
+* **WM_PAINT is generated, not queued** - the same as Windows - so the port's own
+  `DispatchMessage` delivers it instead of the shim painting behind its back.
+* **The resource pack is synthesised in memory** from the player's executable,
+  laid out exactly as `build_resource_pack.py` would. 499 of 499 descriptors,
+  6,089,216 bytes, matching the Python tool byte for byte. Nothing copyrighted is
+  committed or served, and `OriginalResources::from_current_module` works
+  unchanged.
+
+### The private resource type names
+
+The one real piece of reverse engineering so far, and the reason the game got
+past its first table. The port looks resources up by four-character type names -
+`find("PART", 1000)`, `find("WAVE", id)` - while the generated table calls those
+types `TYPE_32513` upwards, so every one of those lookups came back empty.
+
+Neither side is wrong: in a New Executable a type id with the high bit set is an
+integer, and SimTower's private types genuinely are 0xFF01..0xFF0B. The names
+live in the original's own source and the port carries them; the public tools
+have no mapping between the two. `tools/name_private_types.py` is that mapping,
+applied to the generated header by `tools/build_assets.sh`, and
+`shim/src/win32_ne.cpp` carries the same table for building the pack - **the two
+have to agree or the pack comes out empty.**
+
+It was derived from the data, and three entries were wrong when they were
+derived from id ranges instead. ALRT was pinned by reading exactly as
+`parse_original_alert` expects, TABL and TABM by which types parse as big-endian
+word tables at the ids the port asks for, WAVE by every entry beginning
+"RIFF....WAVE". Do not adjust an entry without that kind of evidence.
+
+## Next after that
 
 `upstream/port/src/native_main.cpp` (10,071 lines) is the port's Win32 host —
 `WinMain`, the window procedure, the dispatcher. Getting it to build is what
 turns this from a resource viewer into the game.
 
-Measured, not estimated: **105 errors, about 50 more declarations needed.** The
-method that got the core from thousands of errors to zero is mechanical and works
-here too:
+The harvest loop below is what got the core, and then the host, from thousands
+of errors to zero. Keep using it:
 
 ```sh
 for f in upstream/port/src/native_main.cpp; do
@@ -110,6 +156,12 @@ After it compiles, the pieces still missing to actually run it:
 3. **`waveOut`.** Declared in `shim/include/mmsystem.h`, not implemented.
 
 ## Traps already paid for
+
+* **`upstream/` in the working tree is a copy, not a symlink.** `ln -s` does not
+  make one on Windows, so there are two trees and the build uses whichever
+  `-DUPSTREAM` named at configure time. A rename applied to the wrong one looks
+  like a build that ignores your change. Check `readlink upstream` before
+  believing "ninja: no work to do".
 
 * **`HGDIOBJ` is `void *` in the real SDK**, not a `DECLARE_HANDLE`. That is why
   Windows code writes `DeleteObject(hBrush)` with no cast, and it accounted for

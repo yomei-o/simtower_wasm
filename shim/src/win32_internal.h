@@ -275,6 +275,8 @@ void  hostSetCursor(const char * css);
    than out of a pack, so nothing copyrighted has to be committed or served. */
 bool         loadResourcesFromExecutable(const BYTE * data, size_t size);
 size_t       findResourceIndex(uint16_t type, uint16_t id);
+/* The blob the port reads as RCDATA 101, assembled from the executable. */
+const BYTE * resourcePack(size_t * size);
 size_t       resourceCount();
 const BYTE * resourceAt(size_t index, size_t * size);
 const char * resourceType(size_t index);

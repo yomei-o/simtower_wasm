@@ -71,3 +71,69 @@ target_link_options(simtower_node PRIVATE
 set_target_properties(simtower_node PROPERTIES
     SUFFIX ".js"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/build/node")
+
+
+# The game itself: the port's own Win32 host, with Asyncify so its PeekMessage
+# loop can yield to the browser instead of freezing the tab.
+add_executable(simtower_game ${SHIM_SOURCES} ${PORT_SOURCES}
+               "${UPSTREAM}/port/src/native_main.cpp"
+               "${CMAKE_SOURCE_DIR}/game/entry.cpp")
+target_compile_features(simtower_game PRIVATE cxx_std_20)
+target_compile_definitions(simtower_game PRIVATE UNICODE _UNICODE
+                           WIN32_LEAN_AND_MEAN NOMINMAX)
+# WinMain wraps its whole body in try/catch, so catching has to be enabled;
+# without it the first throw aborts with an assertion instead.
+target_compile_options(simtower_game PRIVATE -fexceptions)
+target_include_directories(simtower_game PRIVATE
+    "${CMAKE_SOURCE_DIR}/shim/include"
+    "${CMAKE_SOURCE_DIR}/shim/src"
+    "${UPSTREAM}/port/src"
+    "${UPSTREAM}/port/generated")
+target_link_options(simtower_game PRIVATE
+    "SHELL:--shell-file ${CMAKE_SOURCE_DIR}/web/shell.html"
+    -fexceptions
+    -sASYNCIFY=1
+    -sASYNCIFY_STACK_SIZE=131072
+    -sALLOW_MEMORY_GROWTH=1
+    -sINITIAL_MEMORY=268435456
+    -sSTACK_SIZE=16777216
+    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']
+    -sEXPORTED_FUNCTIONS=['_main','_simtowerLoadExecutable','_malloc','_free']
+    -sSINGLE_FILE=1
+    -sASSERTIONS=1)
+set_target_properties(simtower_game PROPERTIES
+    SUFFIX ".html"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/docs")
+
+# The same thing for the command line, so it can be watched without a browser.
+add_executable(simtower_game_node ${SHIM_SOURCES} ${PORT_SOURCES}
+               "${UPSTREAM}/port/src/native_main.cpp"
+               "${CMAKE_SOURCE_DIR}/game/entry.cpp")
+target_compile_features(simtower_game_node PRIVATE cxx_std_20)
+target_compile_definitions(simtower_game_node PRIVATE UNICODE _UNICODE
+                           WIN32_LEAN_AND_MEAN NOMINMAX)
+# WinMain wraps its whole body in try/catch, so catching has to be enabled;
+# without it the first throw aborts with an assertion instead.
+target_compile_options(simtower_game_node PRIVATE -fexceptions)
+target_include_directories(simtower_game_node PRIVATE
+    "${CMAKE_SOURCE_DIR}/shim/include"
+    "${CMAKE_SOURCE_DIR}/shim/src"
+    "${UPSTREAM}/port/src"
+    "${UPSTREAM}/port/generated")
+target_link_options(simtower_game_node PRIVATE
+    -sENVIRONMENT=node
+    -sMODULARIZE=1
+    -sEXPORT_NAME=createSimTower
+    -fexceptions
+    -sASYNCIFY=1
+    -sASYNCIFY_STACK_SIZE=131072
+    -sALLOW_MEMORY_GROWTH=1
+    -sINITIAL_MEMORY=268435456
+    -sSTACK_SIZE=16777216
+    -sEXPORTED_RUNTIME_METHODS=['HEAPU8','callMain']
+    -sEXPORTED_FUNCTIONS=['_main','_simtowerLoadExecutable','_malloc','_free']
+    -sINVOKE_RUN=0
+    -sASSERTIONS=1)
+set_target_properties(simtower_game_node PROPERTIES
+    SUFFIX ".js"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/build/node")

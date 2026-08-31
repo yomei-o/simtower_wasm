@@ -27,9 +27,19 @@ uint16_t typeNumber(LPCWSTR type) {
 
 }   // namespace
 
+// The port asks for its own pack by RCDATA id 101, which is not an entry in the
+// executable: the pack is a container the build would normally have made, and
+// here it is assembled in memory instead.  Answering that one specially is what
+// lets the port's own resource reader work unchanged.
+static const uintptr_t kPackHandle = 0xffff0000u;
+
 extern "C" HRSRC FindResourceW(HMODULE, LPCWSTR name, LPCWSTR type) {
     const uint16_t wanted = typeNumber(type);
     const uintptr_t id = (uintptr_t)name;
+
+    if (wanted == 10 && id == 101 && resourcePack(nullptr))
+        return (HRSRC)kPackHandle;
+
     if (!wanted || id > 0xffff) return nullptr;
     const size_t index = findResourceIndex(wanted, (uint16_t)id);
     return index ? (HRSRC)(uintptr_t)index : nullptr;
@@ -48,6 +58,7 @@ extern "C" HGLOBAL LoadResource(HMODULE, HRSRC res) {
 extern "C" LPVOID LockResource(HGLOBAL res) {
     const uintptr_t v = (uintptr_t)res;
     if (!v) return nullptr;
+    if (v == kPackHandle) return (LPVOID)resourcePack(nullptr);
     return (LPVOID)resourceAt(v - 1, nullptr);
 }
 
@@ -57,6 +68,10 @@ extern "C" DWORD SizeofResource(HMODULE, HRSRC res) {
     const uintptr_t v = (uintptr_t)res;
     if (!v) return 0;
     size_t size = 0;
+    if (v == kPackHandle) {
+        resourcePack(&size);
+        return (DWORD)size;
+    }
     if (!resourceAt(v - 1, &size)) return 0;
     return (DWORD)size;
 }

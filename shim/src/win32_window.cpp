@@ -6,6 +6,8 @@
 
 #include "win32_internal.h"
 
+#include <emscripten.h>
+
 #include <algorithm>
 #include <cstring>
 
@@ -26,6 +28,10 @@ int borderWidth(const Window & w) {
 }
 
 }   // namespace
+
+// Defined below, next to the rest of the frame drawing; needed by PeekMessage,
+// which generates WM_PAINT and draws the chrome around it.
+void drawFrame(Window & w);
 
 Window * window(HWND h) {
     if (!h) return nullptr;
@@ -557,7 +563,7 @@ extern "C" BOOL EndPaint(HWND, const PAINTSTRUCT * ps) {
 
 // Windows 3.1 chrome, drawn plainly: the game's own art was designed to sit
 // inside it, so leaving it out would look wrong rather than clean.
-static void drawFrame(Window & w) {
+void drawFrame(Window & w) {
     if (!w.visible) return;
     State & s = state();
 
@@ -678,10 +684,25 @@ static void fireTimers() {
     }
 }
 
+// Published, and the thread handed back, at the one moment nothing is half
+// drawn.  Rate-limited rather than every call: the port polls constantly, and
+// yielding on each poll would leave no time to simulate in.
+static void publishAndYield() {
+#ifdef __EMSCRIPTEN__
+    static double lastPublish = 0;
+    const double now = hostNow();
+    if (now - lastPublish < 16.0) return;
+    lastPublish = now;
+    presentScreen();
+    emscripten_sleep(0);
+#endif
+}
+
 extern "C" BOOL PeekMessageW(LPMSG msg, HWND filter, UINT first, UINT last,
                              UINT remove) {
     if (!msg) return FALSE;
     fireTimers();
+    publishAndYield();
 
     State & s = state();
     for (size_t i = 0; i < s.queue.size(); i++) {
@@ -698,6 +719,29 @@ extern "C" BOOL PeekMessageW(LPMSG msg, HWND filter, UINT first, UINT last,
         msg->pt = q.pt;
         if (remove & PM_REMOVE) s.queue.erase(s.queue.begin() + i);
         return TRUE;
+    }
+
+    // Nothing queued, so a window with an invalid region gets its WM_PAINT
+    // generated now - which is what Windows does, and what lets the port's own
+    // DispatchMessage deliver it rather than the shim painting behind its back.
+    const bool paintAllowed = (first == 0 && last == 0) ||
+                              (first <= WM_PAINT && WM_PAINT <= last);
+    if (paintAllowed) {
+        for (auto & entry : s.windows) {
+            Window & w = entry.second;
+            if (w.destroyed || !w.visible || !w.needsPaint) continue;
+            if (filter && (HWND)entry.first != filter) continue;
+            drawFrame(w);
+            msg->hwnd = (HWND)entry.first;
+            msg->message = WM_PAINT;
+            msg->wParam = 0;
+            msg->lParam = 0;
+            msg->time = GetTickCount();
+            msg->pt = s.mouse;
+            // Left invalid until BeginPaint clears it, so a peek without
+            // PM_REMOVE reports the same message again, as Windows does.
+            return TRUE;
+        }
     }
     return FALSE;
 }

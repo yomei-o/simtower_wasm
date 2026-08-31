@@ -3,6 +3,10 @@
 Running the **disassembly-backed C++ port of SimTower** in a browser, on
 WebAssembly, with no WebGL — the game's GDI drawing is rasterised in software.
 
+### [Live demo](https://yomei-o.github.io/simtower_wasm/) — bring your own `SIMTOWER.EXE`
+
+The page reads the executable you choose and never uploads it.
+
 ## What is in this repository
 
 Only this project's own work:

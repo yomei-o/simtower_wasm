@@ -11,6 +11,7 @@ extern "C" {
 #define OFN_HIDEREADONLY      0x00000004
 #define OFN_PATHMUSTEXIST     0x00000800
 #define OFN_FILEMUSTEXIST     0x00001000
+#define OFN_ENABLEHOOK        0x00000020
 #define OFN_EXPLORER          0x00080000
 
 typedef struct tagOFNW {
@@ -29,7 +30,7 @@ typedef struct tagOFNW {
     WORD      nFileOffset, nFileExtension;
     LPCWSTR   lpstrDefExt;
     LPARAM    lCustData;
-    void *    lpfnHook;
+    UINT_PTR (CALLBACK * lpfnHook)(HWND, UINT, WPARAM, LPARAM);
     LPCWSTR   lpTemplateName;
 } OPENFILENAMEW, *LPOPENFILENAMEW;
 

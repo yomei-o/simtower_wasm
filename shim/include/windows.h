@@ -30,9 +30,12 @@ extern "C" {
 typedef int                  BOOL;
 typedef unsigned char        BYTE;
 typedef unsigned short       WORD;
-typedef unsigned int         DWORD;      /* 32 bits, as on Win32 */
-typedef int                  LONG;
-typedef unsigned int         ULONG;
+/* long, not int, exactly as Win32 declares them.  Both are 32 bits under
+   Emscripten so nothing about layout changes, but the port writes
+   std::max(0L, rect.right) and that does not compile if LONG is int. */
+typedef unsigned long        DWORD;
+typedef long                 LONG;
+typedef unsigned long        ULONG;
 typedef unsigned int         UINT;
 typedef int                  INT;
 typedef short                SHORT;
@@ -1219,6 +1222,134 @@ UINT     GetSystemPaletteEntries(HDC dc, UINT start, UINT count,
                                  LPPALETTEENTRY entries);
 
 
+/* ------------------------------------------------- the host's own requests */
+
+/* Device capabilities.  The port asks for the colour depth and whether the
+   display can do palettes, and decides how to draw from the answers. */
+#define DRIVERVERSION 0
+#define TECHNOLOGY    2
+#define HORZSIZE      4
+#define VERTSIZE      6
+#define HORZRES       8
+#define VERTRES       10
+#define BITSPIXEL     12
+#define PLANES        14
+#define NUMBRUSHES    16
+#define NUMPENS       18
+#define NUMCOLORS     24
+#define RASTERCAPS    38
+#define SIZEPALETTE   104
+#define NUMRESERVED   106
+#define COLORRES      108
+
+#define RC_BITBLT     1
+#define RC_BITMAP64   8
+#define RC_DI_BITMAP  128
+#define RC_PALETTE    256
+#define RC_DIBTODEV   512
+#define RC_STRETCHDIB 8192
+
+int GetDeviceCaps(HDC dc, int index);
+
+typedef struct _RASTERIZER_STATUS {
+    short nSize, wFlags, nLanguageID;
+} RASTERIZER_STATUS, *LPRASTERIZER_STATUS;
+#define TT_AVAILABLE 0x0001
+#define TT_ENABLED   0x0002
+BOOL GetRasterizerCaps(LPRASTERIZER_STATUS status, UINT size);
+
+BOOL AnimatePalette(HPALETTE palette, UINT start, UINT count,
+                    const PALETTEENTRY * entries);
+BOOL UpdateColors(HDC dc);
+
+/* Window metrics the host uses to work out its own frame. */
+#define SM_CXDLGFRAME  7
+#define SM_CYDLGFRAME  8
+#define SM_SWAPBUTTON  23
+BOOL AdjustWindowRectEx(LPRECT r, DWORD style, BOOL menu, DWORD exStyle);
+BOOL AdjustWindowRect(LPRECT r, DWORD style, BOOL menu);
+
+#define WA_INACTIVE    0
+#define WA_ACTIVE      1
+#define WA_CLICKACTIVE 2
+
+#define WM_NCDESTROY 0x0082
+#define WM_APP       0x8000
+
+#define DT_NOPREFIX     0x00000800
+#define DT_END_ELLIPSIS 0x00008000
+
+#define IDC_SIZENS   MAKEINTRESOURCE(32645)
+#define IDC_SIZEWE   MAKEINTRESOURCE(32644)
+
+/* Modules.  There is nothing to load here, but the port checks for optional
+   entry points before using them, so the calls have to answer. */
+HMODULE LoadLibraryW(LPCWSTR name);
+HMODULE LoadLibraryA(LPCSTR name);
+BOOL    FreeLibrary(HMODULE module);
+void *  GetProcAddress(HMODULE module, LPCSTR name);
+DWORD   GetModuleFileNameW(HMODULE module, LPWSTR buf, DWORD len);
+DWORD   GetModuleFileNameA(HMODULE module, LPSTR buf, DWORD len);
+
+/* Files and directories, for the save-game paths. */
+#define INVALID_FILE_ATTRIBUTES     ((DWORD)-1)
+#define FILE_ATTRIBUTE_READONLY     0x00000001
+#define FILE_ATTRIBUTE_DIRECTORY    0x00000010
+#define FILE_ATTRIBUTE_ARCHIVE      0x00000020
+#define FILE_ATTRIBUTE_NORMAL       0x00000080
+DWORD GetFileAttributesW(LPCWSTR path);
+DWORD GetFileAttributesA(LPCSTR path);
+UINT  GetWindowsDirectoryW(LPWSTR buf, UINT len);
+UINT  GetSystemDirectoryW(LPWSTR buf, UINT len);
+UINT  GetTempPathW(DWORD len, LPWSTR buf);
+DWORD GetProfileStringA(LPCSTR section, LPCSTR key, LPCSTR def, LPSTR buf,
+                        DWORD len);
+UINT  GetProfileIntA(LPCSTR section, LPCSTR key, INT def);
+
+/* Memory.  Answered from what the runtime actually has rather than invented:
+   the port only looks at it to decide how much it may cache. */
+typedef struct _MEMORYSTATUSEX {
+    DWORD     dwLength;
+    DWORD     dwMemoryLoad;
+    ULONGLONG ullTotalPhys, ullAvailPhys;
+    ULONGLONG ullTotalPageFile, ullAvailPageFile;
+    ULONGLONG ullTotalVirtual, ullAvailVirtual;
+    ULONGLONG ullAvailExtendedVirtual;
+} MEMORYSTATUSEX, *LPMEMORYSTATUSEX;
+BOOL GlobalMemoryStatusEx(LPMEMORYSTATUSEX status);
+
+/* Odds and ends. */
+int  MulDiv(int number, int numerator, int denominator);
+int  lstrcmpiW(LPCWSTR a, LPCWSTR b);
+int  lstrcmpiA(LPCSTR a, LPCSTR b);
+int  lstrlenW(LPCWSTR s);
+LPWSTR lstrcpyW(LPWSTR dst, LPCWSTR src);
+
+#define HELP_CONTEXT  0x0001
+#define HELP_QUIT     0x0002
+#define HELP_INDEX    0x0003
+#define HELP_CONTENTS 0x0003
+#define HELP_HELPONHELP 0x0004
+#define HELP_KEY      0x0101
+BOOL WinHelpW(HWND wnd, LPCWSTR help, UINT command, ULONG_PTR data);
+
+
+/* Implemented in the shim; declared here so the host can reach them. */
+LRESULT CallWindowProcW(WNDPROC proc, HWND wnd, UINT msg, WPARAM w, LPARAM l);
+BOOL    EnumChildWindows(HWND wnd, WNDENUMPROC proc, LPARAM param);
+HWND    GetTopWindow(HWND wnd);
+int     GetWindowTextLengthW(HWND wnd);
+BOOL    IsIconic(HWND wnd);
+BOOL    IsDialogMessageW(HWND dlg, LPMSG msg);
+BOOL    SetScrollRange(HWND wnd, int bar, int min, int max, BOOL redraw);
+BOOL    DestroyCursor(HCURSOR cursor);
+BOOL    DestroyIcon(HICON icon);
+BOOL    ClipCursor(const RECT * r);
+SHORT   GetAsyncKeyState(int key);
+void    FatalAppExitA(UINT action, LPCSTR text);
+BOOL    MapWindowPoints(HWND from, HWND to, LPPOINT points, UINT count);
+BOOL    WriteProfileStringA(LPCSTR section, LPCSTR key, LPCSTR value);
+
 /* ------------------------------------------------------- ANSI/W aliasing */
 
 #ifdef UNICODE
@@ -1269,6 +1400,19 @@ UINT     GetSystemPaletteEntries(HDC dc, UINT start, UINT count,
 #define GetPrivateProfileInt GetPrivateProfileIntW
 #define GetPrivateProfileString GetPrivateProfileStringW
 #define WritePrivateProfileString WritePrivateProfileStringW
+#define LoadLibrary         LoadLibraryW
+#define GetModuleFileName   GetModuleFileNameW
+#define GetFileAttributes   GetFileAttributesW
+#define GetWindowsDirectory GetWindowsDirectoryW
+#define GetSystemDirectory  GetSystemDirectoryW
+#define GetTempPath         GetTempPathW
+#define lstrcmpi            lstrcmpiW
+#define lstrlen             lstrlenW
+#define lstrcpy             lstrcpyW
+#define WinHelp             WinHelpW
+#define CallWindowProc      CallWindowProcW
+#define GetWindowTextLength GetWindowTextLengthW
+#define IsDialogMessage     IsDialogMessageW
 #define CreateWindow(c, n, s, x, y, w, h, p, m, i, l) \
     CreateWindowExW(0, c, n, s, x, y, w, h, p, m, i, l)
 #define DialogBox(inst, tmpl, parent, proc) \
@@ -1278,4 +1422,46 @@ UINT     GetSystemPaletteEntries(HDC dc, UINT start, UINT count,
 
 #ifdef __cplusplus
 }   /* extern "C" */
+#endif
+
+#ifdef __cplusplus
+/* Narrow paths into the wide entry points.
+ *
+ * std::filesystem::path::value_type is wchar_t on Windows and char here, so the
+ * port's own calls - written correctly for Windows - hand a narrow path to a W
+ * function.  Absorbed here rather than patched upstream: the difference is the
+ * platform's, not the port's, and a patch would have to be carried for ever.
+ */
+extern "C++" {
+
+inline UINT GetPrivateProfileIntW(LPCWSTR section, LPCWSTR key, INT def,
+                                  const char * file) {
+    (void)section; (void)key; (void)file;
+    return (UINT)def;
+}
+
+inline DWORD GetPrivateProfileStringW(LPCWSTR section, LPCWSTR key, LPCWSTR def,
+                                      LPWSTR buf, DWORD len, const char * file) {
+    (void)file;
+    return GetPrivateProfileStringW(section, key, def, buf, len, (LPCWSTR)nullptr);
+}
+
+inline BOOL WritePrivateProfileStringW(LPCWSTR section, LPCWSTR key,
+                                       LPCWSTR value, const char * file) {
+    (void)section; (void)key; (void)value; (void)file;
+    return TRUE;
+}
+
+DWORD GetFileAttributesNarrow(const char * path);
+inline DWORD GetFileAttributesW(const char * path) {
+    return GetFileAttributesNarrow(path);
+}
+
+inline BOOL WinHelpW(HWND wnd, const char * help, UINT command,
+                     ULONG_PTR data) {
+    (void)wnd; (void)help; (void)command; (void)data;
+    return FALSE;      /* there is no help viewer in a browser */
+}
+
+}   /* extern "C++" */
 #endif
