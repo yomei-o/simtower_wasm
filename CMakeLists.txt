@@ -5,6 +5,15 @@ project(simtower_wasm CXX)
 # the note in the README about why.
 set(UPSTREAM "${CMAKE_SOURCE_DIR}/upstream" CACHE PATH "the fetched port")
 
+# Everything here is a software rasteriser - the world is composed a pixel at a
+# time in C++ and then blitted - so this is not a small difference.  Nothing
+# ever set a build type, which meant every build so far was -O0.
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+add_compile_options($<$<CONFIG:Release>:-O2>)
+add_link_options($<$<CONFIG:Release>:-O2>)
+
 if(NOT EXISTS "${UPSTREAM}/port/src/original_world.cpp")
     message(FATAL_ERROR
         "No port source in ${UPSTREAM}.  Run tools/fetch_upstream.sh first.")
