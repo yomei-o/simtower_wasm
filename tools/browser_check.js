@@ -19,7 +19,7 @@ const http = require('http');
 const { spawn } = require('child_process');
 
 const pagePath = path.resolve(process.argv[2] || 'docs/index.html');
-const executable = path.resolve(process.argv[3]);
+const executable = process.argv[3] === 'none' ? '' : path.resolve(process.argv[3]);
 const outputPath = path.resolve(process.argv[4] || 'browser.png');
 const actions = process.argv.slice(5);
 
@@ -164,12 +164,17 @@ function connect(url) {
     console.log('log:', await evaluate("document.getElementById('log').textContent"));
   }
 
-  // Hand the page's own file input a real executable.
+  // Hand the page's own file input a real executable - unless the caller asked
+  // for none, which is how "does it remember the last one" gets tested.
+  if (process.argv[3] === 'none') {
+    console.log('no executable given: the page must remember one');
+  } else {
   const { root: document } = await cdp.send('DOM.getDocument');
   const { nodeId } = await cdp.send('DOM.querySelector', {
     nodeId: document.nodeId, selector: '#file',
   });
   await cdp.send('DOM.setFileInputFiles', { nodeId, files: [executable] });
+  }
   await sleep(3000);
   console.log('status:', await evaluate(
     "document.getElementById('status').textContent"));

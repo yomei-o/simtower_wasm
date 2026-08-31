@@ -48,14 +48,15 @@
   <div id="gate">
     <strong>SimTower on WebAssembly</strong> &mdash; choose your own
     <code>SIMTOWER.EXE</code> (the 16-bit Windows 3.1 release) and the game
-    starts.  Nothing is uploaded: the file is read in this browser and never
-    leaves it.
+    starts.  Nothing is uploaded: the file is read in this browser, never
+    leaves it, and is remembered here so the next visit starts straight away.
     <input id="file" type="file" accept=".exe,.EXE">
   </div>
   <div id="saves">
     saved towers: <span id="saveList">&mdash;</span>
     <span style="float:right">
       <button id="refresh" type="button">refresh</button>
+      <button id="forget" type="button" title="remove the remembered SIMTOWER.EXE from this browser">forget my EXE</button>
       <label for="import">import .TDT</label>
       <input id="import" type="file" accept=".tdt,.TDT">
     </span>
@@ -101,6 +102,16 @@
     onRuntimeInitialized: function () {
       statusEl.textContent = 'ready - choose SIMTOWER.EXE';
       startHud();
+      // The directory comes back from IndexedDB a moment later; if there is an
+      // executable in it the game has already started on its own.
+      whenSavesReady(function () {
+        refreshSaves();
+        try {
+          Module.FS.stat(EXE_PATH);
+          statusEl.textContent =
+            'SimTower is running - on the SIMTOWER.EXE this browser remembers';
+        } catch (e) { /* nothing remembered: the picker above is the way in */ }
+      });
     }
   };
 
@@ -122,12 +133,13 @@
         return;
       }
 
+      rememberExecutable(bytes);
       var pointer = Module._malloc(bytes.length);
       Module.HEAPU8.set(bytes, pointer);
       var count = Module._simtowerLoadExecutable(pointer, bytes.length);
       Module._free(pointer);
 
-      refreshSaves();
+      whenSavesReady(refreshSaves);
       statusEl.textContent = count > 0
         ? count + ' resources read - SimTower is running'
         : 'could not read resources out of ' + file.name
@@ -141,6 +153,19 @@
   // the way out and the way back in: a tower can be downloaded and kept, and a
   // .TDT from anywhere - including the real game - can be dropped in.
   var SAVES = '/saves';
+
+  // The directory is restored from IndexedDB asynchronously at startup, and
+  // that restore replaces whatever is in it.  Anything written before it
+  // finishes is thrown away - which is how a remembered executable vanished
+  // between being written and the next line of code.  Module.simtowerSavesReady
+  // is set when the restore has been and gone.
+  function whenSavesReady(work) {
+    if (Module.simtowerSavesReady) {
+      work();
+      return;
+    }
+    setTimeout(function () { whenSavesReady(work); }, 100);
+  }
 
   function saveNames() {
     try {
@@ -184,6 +209,31 @@
 
   document.getElementById('refresh').addEventListener('click', refreshSaves);
 
+  // The executable is kept in the same browser-private directory the towers
+  // are, so a reload starts the game instead of asking for a file again.  It
+  // is the player's own copy, it never leaves their machine, and this removes
+  // it.
+  var EXE_PATH = SAVES + '/SIMTOWER.EXE';
+
+  function rememberExecutable(bytes) {
+    whenSavesReady(function () {
+      try {
+        Module.FS.writeFile(EXE_PATH, bytes);
+        Module.FS.syncfs(false, function () {});
+      } catch (e) { /* a browser that refuses storage still plays */ }
+    });
+  }
+
+  document.getElementById('forget').addEventListener('click', function () {
+    try {
+      Module.FS.unlink(EXE_PATH);
+      Module.FS.syncfs(false, function () {});
+      statusEl.textContent = 'forgotten - the next reload will ask for the file again';
+    } catch (e) {
+      statusEl.textContent = 'nothing remembered';
+    }
+  });
+
   document.getElementById('import').addEventListener('change', function (event) {
     var file = event.target.files && event.target.files[0];
     if (!file) return;
@@ -196,10 +246,12 @@
                           .replace(/[\\/:]/g, '')
                           .toUpperCase()
                           .slice(0, 8) || 'TOWER';
-      Module.FS.writeFile(SAVES + '/' + base + '.TDT',
-                          new Uint8Array(reader.result));
-      try { Module.FS.syncfs(false, function () {}); } catch (e) {}
-      refreshSaves();
+      whenSavesReady(function () {
+        Module.FS.writeFile(SAVES + '/' + base + '.TDT',
+                            new Uint8Array(reader.result));
+        try { Module.FS.syncfs(false, function () {}); } catch (e) {}
+        refreshSaves();
+      });
       statusEl.textContent = 'imported ' + base
         + '.TDT \u2014 open it from the game\u2019s File menu';
     };

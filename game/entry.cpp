@@ -15,6 +15,7 @@
 #include <emscripten.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 // C++ linkage, not extern "C": native_main.cpp defines it as an ordinary C++
@@ -54,12 +55,29 @@ int main() {
     shim::hostInit();
     shim::presentScreen();
 
-    printf("waiting for SIMTOWER.EXE\n");
+    // The saved towers, and whatever executable was chosen last time, come
+    // back from IndexedDB here - before anything looks in that directory.
+    shim::mountSaves();
+
+    // The player's own executable, kept in their own browser from last time.
+    // It is never uploaded and never leaves the machine it was chosen on; this
+    // is the difference between starting the game and finding a file first,
+    // every single time.
+    if (FILE * remembered = fopen("/saves/SIMTOWER.EXE", "rb")) {
+        fseek(remembered, 0, SEEK_END);
+        const long size = ftell(remembered);
+        fseek(remembered, 0, SEEK_SET);
+        if (size > 0) {
+            std::vector<uint8_t> bytes((size_t)size);
+            if (fread(bytes.data(), 1, bytes.size(), remembered) == bytes.size())
+                simtowerLoadExecutable(bytes.data(), (int)bytes.size());
+        }
+        fclose(remembered);
+    }
+
+    if (!g_ready) printf("waiting for SIMTOWER.EXE\n");
     while (!g_ready)
         emscripten_sleep(100);
-
-    // Before WinMain, so the first Open sees whatever was saved last time.
-    shim::mountSaves();
 
     printf("starting WinMain\n");
     char commandLine[] = "";
