@@ -669,6 +669,17 @@ typedef LPTEXTMETRICA LPTEXTMETRIC;
 #define SWP_HIDEWINDOW  0x0080
 #define SWP_FRAMECHANGED 0x0020
 
+/* Hit-test results, returned from WM_NCHITTEST. */
+#define HTERROR      (-2)
+#define HTNOWHERE    0
+#define HTCLIENT     1
+#define HTCAPTION    2
+#define HTSYSMENU    3
+#define HTMENU       5
+#define HTMINBUTTON  8
+#define HTMAXBUTTON  9
+
+#define HWND_DESKTOP ((HWND)0)
 #define HWND_TOP     ((HWND)0)
 #define HWND_BOTTOM  ((HWND)1)
 #define HWND_TOPMOST ((HWND)-1)

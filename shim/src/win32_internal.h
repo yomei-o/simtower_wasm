@@ -260,10 +260,25 @@ void  dispatchPending();
 void  post(HWND h, UINT msg, WPARAM w, LPARAM l);
 LRESULT send(HWND h, UINT msg, WPARAM w, LPARAM l);
 
-/* Menus. */
+/* Menus.  One row height serves the caption, the menu bar and a popup line,
+   which is what Windows 3.1 did and what keeps the three lined up. */
+constexpr int kCaptionBarHeight = 19;
 int   menuBarHeight(const Window & w);
 void  drawMenuBar(DeviceContext & d, Window & w);
+void  drawMenuPopup(DeviceContext & d, Window & w);
 bool  menuBarClick(Window & w, POINT client);
+
+/* The host also sets the canvas cursor. */
+void  hostSetCursor(const char * css);
+
+/* Resources, in win32_ne.cpp: parsed out of the player's own executable rather
+   than out of a pack, so nothing copyrighted has to be committed or served. */
+bool         loadResourcesFromExecutable(const BYTE * data, size_t size);
+size_t       findResourceIndex(uint16_t type, uint16_t id);
+size_t       resourceCount();
+const BYTE * resourceAt(size_t index, size_t * size);
+const char * resourceType(size_t index);
+int          resourceId(size_t index);
 
 /* The host, in win32_host.cpp. */
 void  hostInit();

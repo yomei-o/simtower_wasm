@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SimTower on WebAssembly</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; background: #0e0e10; color: #ddd; overflow: auto;
+    font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  #stage { display: grid; place-items: start center; padding: 16px; }
+  /* Presented at exactly one CSS pixel per drawn pixel.  The canvas element is
+     sized from C++ to match the backbuffer, because pointer coordinates are
+     derived from the element rect - any other ratio misplaces every click and
+     resamples the picture. */
+  canvas { display: block; background: #000; image-rendering: pixelated; }
+  #gate {
+    padding: 10px 16px; background: #17171a; border-bottom: 1px solid #2c2c32;
+  }
+  #gate code { color: #cfcfd6; }
+  #gate input { margin-left: 10px; }
+  #status { padding: 8px 16px; font: 12px ui-monospace, monospace; color: #8a8a92; }
+  #hud {
+    position: fixed; right: 8px; bottom: 6px; font: 11px ui-monospace, monospace;
+    color: #6a6a72; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <div id="gate">
+    <strong>SimTower on WebAssembly</strong> &mdash; choose your own
+    <code>SIMTOWER.EXE</code> (the 16-bit Windows 3.1 release).
+    Nothing is uploaded: the file is read in this browser and never leaves it.
+    <input id="file" type="file" accept=".exe,.EXE">
+  </div>
+  <div id="status">starting...</div>
+  <div id="stage"><canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas></div>
+  <div id="hud"></div>
+
+<script>
+  var statusEl = document.getElementById('status');
+  var canvasEl = document.getElementById('canvas');
+
+  var Module = {
+    canvas: canvasEl,
+    // Left on the document deliberately.  A canvas cannot take focus without a
+    // tabindex, and preventDefault on mousedown stops a click from focusing it
+    // even then, so keys aimed at the canvas never arrive.
+    print: function (text) {
+      statusEl.textContent = text;
+      console.log(text);
+    },
+    printErr: function (text) {
+      statusEl.textContent = text;
+      console.error(text);
+    },
+    setStatus: function (text) {
+      if (text) statusEl.textContent = text;
+    },
+    onRuntimeInitialized: function () {
+      statusEl.textContent = 'ready - choose SIMTOWER.EXE';
+      startHud();
+    }
+  };
+
+  document.getElementById('file').addEventListener('change', function (event) {
+    var file = event.target.files && event.target.files[0];
+    if (!file) return;
+    statusEl.textContent = 'reading ' + file.name + '...';
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      var bytes = new Uint8Array(reader.result);
+
+      // KWAJ is the compressed form off the install disc.  Naming the file that
+      // is wanted beats failing to parse a header that was never an NE.
+      if (bytes.length > 4 && bytes[0] === 0x4B && bytes[1] === 0x57 &&
+          bytes[2] === 0x41 && bytes[3] === 0x4A) {
+        statusEl.textContent = file.name + ' is KWAJ-compressed. Run the '
+          + 'installer and use the SIMTOWER.EXE it writes.';
+        return;
+      }
+
+      var pointer = Module._malloc(bytes.length);
+      Module.HEAPU8.set(bytes, pointer);
+      var count = Module._simtowerLoadExecutable(pointer, bytes.length);
+      Module._free(pointer);
+
+      statusEl.textContent = count > 0
+        ? count + ' bitmaps decoded - click or press space to page through them'
+        : 'could not read resources out of ' + file.name
+          + ' (see the console for why)';
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
+  // A software rasteriser is worth measuring rather than guessing about.
+  function startHud() {
+    var hud = document.getElementById('hud');
+    var frames = 0, last = performance.now();
+    function tick() {
+      frames++;
+      var now = performance.now();
+      if (now - last >= 1000) {
+        hud.textContent = frames + ' fps  ' + canvasEl.width + 'x'
+                        + canvasEl.height;
+        frames = 0;
+        last = now;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>
