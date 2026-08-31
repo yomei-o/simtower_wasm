@@ -172,6 +172,20 @@ function writePng(file, width, height, rgba) {
         Module._simtowerInjectMouse(MOUSEUP, +parts[0], +parts[1], 0);
         await settle(120);
         break;
+      case 'press':
+        // Press and hold: the command selector is only up while the button is
+        // down, so seeing what is in a group needs the two halves apart.
+        Module._simtowerInjectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
+        await settle(40);
+        Module._simtowerInjectMouse(MOUSEDOWN, +parts[0], +parts[1], 0);
+        await settle(150);
+        break;
+      case 'release':
+        Module._simtowerInjectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
+        await settle(60);
+        Module._simtowerInjectMouse(MOUSEUP, +parts[0], +parts[1], 0);
+        await settle(250);
+        break;
       case 'drag': {
         // Press, move in steps, release - which is the only way to test
         // anything that tracks the pointer while a button is held.
