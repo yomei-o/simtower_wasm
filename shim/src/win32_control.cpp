@@ -29,12 +29,6 @@ const int kListItemPadding = 2;
 const int kComboArrowWidth = 16;
 const int kScrollArrowSize = 16;
 
-HWND handleOf(const Window & w) {
-    for (auto & entry : state().windows)
-        if (&entry.second == &w) return (HWND)entry.first;
-    return nullptr;
-}
-
 int textHeight(HDC hdc) {
     TEXTMETRICW tm{};
     GetTextMetricsW(hdc, &tm);

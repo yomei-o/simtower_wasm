@@ -208,6 +208,12 @@ that only showed in the browser (the tool palette missing) was a genuine one.
   path has none, so `/saves/TOWER.TDT` measures twelve characters and comes back
   as "That is not a valid filename". It is handed a bare name, and the process
   `chdir`s into the saves directory.
+* **ShowWindow must not activate the window it shows.** It is what Windows
+  does, and it recurses here: the port answers WM_ACTIVATE by showing the
+  auxiliary windows, so activating on show makes the main window and a palette
+  hand activation back and forth until the stack runs out. The cost of leaving
+  it alone is that the tool palette wears an active caption the real game gives
+  to the main window, which is a strip of colour.
 * **IDBFS asserts rather than throws where there is no IndexedDB**, and an
   assert aborts the runtime. Ask `typeof indexedDB` first. And `-lidbfs.js` is
   per target: with it missing the runtime keeps a stub that answers "IDBFS is no

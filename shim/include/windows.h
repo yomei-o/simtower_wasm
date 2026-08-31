@@ -642,6 +642,7 @@ typedef LPTEXTMETRICA LPTEXTMETRIC;
 #define SW_SHOW            5
 #define SW_MINIMIZE        6
 #define SW_RESTORE         9
+#define SW_SHOWNA          8
 
 #define GWL_STYLE     (-16)
 #define GWL_EXSTYLE   (-20)
