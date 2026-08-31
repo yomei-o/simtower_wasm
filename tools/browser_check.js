@@ -112,7 +112,12 @@ function connect(url) {
 
 (async () => {
   const server = await serve();
-  const profile = fs.mkdtempSync(path.join(require('os').tmpdir(), 'simtower-'));
+  // A stable profile, so what the page put in IndexedDB is still there on the
+  // next run: that is the only way to test that a saved tower survives a
+  // reload.  SIMTOWER_PROFILE picks a different one.
+  const profile = process.env.SIMTOWER_PROFILE
+    || path.join(require('os').tmpdir(), 'simtower-profile');
+  fs.mkdirSync(profile, { recursive: true });
   const chrome = spawn(CHROME, [
     '--headless=new',
     `--remote-debugging-port=${DEBUG_PORT}`,
@@ -203,6 +208,10 @@ function connect(url) {
       await sleep(50);
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: rest });
       await sleep(150);
+    } else if (verb === 'js') {
+      // Look inside the page: the file system, the audio context, whatever the
+      // question is.  A screenshot cannot answer "did the file get written".
+      console.log('js:', rest, '=>', JSON.stringify(await evaluate(rest)));
     } else if (verb === 'shot') await shot(rest);
     else console.log('unknown action', action);
   }

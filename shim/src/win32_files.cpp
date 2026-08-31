@@ -52,9 +52,11 @@ EM_JS(void, jsMountSaves, (), {
         FS.syncfs(true, function(err) {
             // Ready either way: a first run has nothing to restore, and a
             // browser that refuses IndexedDB still gets a working session.
+            if (err) Module.simtowerSavesError = String(err);
             Module.simtowerSavesReady = err ? 2 : 1;
         });
     } catch (e) {
+        Module.simtowerSavesError = String(e);
         Module.simtowerSavesReady = 2;
     }
 });

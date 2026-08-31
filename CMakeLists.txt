@@ -106,6 +106,10 @@ target_link_options(simtower_game PRIVATE
     -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']
     -sEXPORTED_FUNCTIONS=['_main','_simtowerLoadExecutable','_malloc','_free']
     -sSINGLE_FILE=1
+    # Saved towers live in an IndexedDB-backed directory so they survive a
+    # reload.  Without this the runtime keeps a stub that answers "IDBFS is
+    # no longer included by default" and the mount quietly fails.
+    -lidbfs.js
     -sASSERTIONS=1)
 set_target_properties(simtower_game PROPERTIES
     SUFFIX ".html"
