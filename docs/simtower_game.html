@@ -21,6 +21,18 @@
   #gate code { color: #cfcfd6; }
   #gate input { margin-left: 10px; }
   #status { padding: 8px 16px; font: 12px ui-monospace, monospace; color: #8a8a92; }
+  #saves {
+    padding: 8px 16px; border-bottom: 1px solid #2c2c32; background: #131316;
+    font: 12px ui-monospace, monospace; color: #9a9aa2;
+  }
+  #saves button, #saves label {
+    font: 12px ui-monospace, monospace; color: #cfcfd6; background: #24242a;
+    border: 1px solid #3a3a42; border-radius: 3px; padding: 2px 8px;
+    margin-right: 6px; cursor: pointer;
+  }
+  #saves button:hover, #saves label:hover { background: #2e2e36; }
+  #saves input[type=file] { display: none; }
+  #saveList { display: inline; }
   #log {
     padding: 4px 16px 12px; font: 12px ui-monospace, monospace; color: #7a7a82;
     white-space: pre-wrap;
@@ -39,6 +51,14 @@
     starts.  Nothing is uploaded: the file is read in this browser and never
     leaves it.
     <input id="file" type="file" accept=".exe,.EXE">
+  </div>
+  <div id="saves">
+    saved towers: <span id="saveList">&mdash;</span>
+    <span style="float:right">
+      <button id="refresh" type="button">refresh</button>
+      <label for="import">import .TDT</label>
+      <input id="import" type="file" accept=".tdt,.TDT">
+    </span>
   </div>
   <div id="status">starting...</div>
   <div id="stage"><canvas id="canvas" width="800" height="600"
@@ -107,12 +127,84 @@
       var count = Module._simtowerLoadExecutable(pointer, bytes.length);
       Module._free(pointer);
 
+      refreshSaves();
       statusEl.textContent = count > 0
         ? count + ' resources read - SimTower is running'
         : 'could not read resources out of ' + file.name
           + ' (see the console for why)';
     };
     reader.readAsArrayBuffer(file);
+  });
+
+  // Saved towers live in an IndexedDB-backed directory inside the page, which
+  // is private to this browser and can be cleared without warning.  These are
+  // the way out and the way back in: a tower can be downloaded and kept, and a
+  // .TDT from anywhere - including the real game - can be dropped in.
+  var SAVES = '/saves';
+
+  function saveNames() {
+    try {
+      return Module.FS.readdir(SAVES).filter(function (name) {
+        return /\.tdt$/i.test(name);
+      });
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function download(name) {
+    var bytes = Module.FS.readFile(SAVES + '/' + name);
+    var url = URL.createObjectURL(new Blob([bytes],
+                                  { type: 'application/octet-stream' }));
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
+  function refreshSaves() {
+    var list = document.getElementById('saveList');
+    var names = saveNames();
+    list.textContent = '';
+    if (!names.length) {
+      list.textContent = 'none yet \u2014 save one from the game\u2019s File menu';
+      return;
+    }
+    names.forEach(function (name, index) {
+      if (index) list.appendChild(document.createTextNode('  '));
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = name;
+      button.title = 'download ' + name;
+      button.onclick = function () { download(name); };
+      list.appendChild(button);
+    });
+  }
+
+  document.getElementById('refresh').addEventListener('click', refreshSaves);
+
+  document.getElementById('import').addEventListener('change', function (event) {
+    var file = event.target.files && event.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      // The game measures a save's name from the last backslash and wants at
+      // most eight characters before the dot, so a long name is trimmed here
+      // rather than refused by the game later.
+      var base = file.name.replace(/\.[^.]*$/, '')
+                          .replace(/[\\/:]/g, '')
+                          .toUpperCase()
+                          .slice(0, 8) || 'TOWER';
+      Module.FS.writeFile(SAVES + '/' + base + '.TDT',
+                          new Uint8Array(reader.result));
+      try { Module.FS.syncfs(false, function () {}); } catch (e) {}
+      refreshSaves();
+      statusEl.textContent = 'imported ' + base
+        + '.TDT \u2014 open it from the game\u2019s File menu';
+    };
+    reader.readAsArrayBuffer(file);
+    event.target.value = '';
   });
 
   // A software rasteriser is worth measuring rather than guessing about.
@@ -6051,6 +6143,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     };
 
 
+
   FS.createPreloadedFile = FS_createPreloadedFile;
   FS.preloadFile = FS_preloadFile;
   FS.staticInit();;
@@ -6108,6 +6201,7 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
 // Begin runtime exports
   Module['ccall'] = ccall;
   Module['cwrap'] = cwrap;
+  Module['FS'] = FS;
   var missingLibrarySymbols = [
   'writeI53ToI64',
   'writeI53ToI64Clamped',
@@ -6386,7 +6480,6 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'FS_createPath',
   'FS_createDevice',
   'FS_readFile',
-  'FS',
   'FS_root',
   'FS_mounts',
   'FS_devices',

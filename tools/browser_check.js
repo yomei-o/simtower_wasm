@@ -231,6 +231,19 @@ function connect(url) {
       // Look inside the page: the file system, the audio context, whatever the
       // question is.  A screenshot cannot answer "did the file get written".
       console.log('js:', rest, '=>', JSON.stringify(await evaluate(rest)));
+    } else if (verb === 'setfile') {
+      // Hand a real file to one of the page's own file inputs, which is the
+      // only way to test an import the way a player does it.
+      const [selector, file] = rest.split('|');
+      const { root: node } = await cdp.send('DOM.getDocument');
+      const found = await cdp.send('DOM.querySelector', {
+        nodeId: node.nodeId, selector,
+      });
+      await cdp.send('DOM.setFileInputFiles', {
+        nodeId: found.nodeId, files: [path.resolve(file)],
+      });
+      console.log('gave', selector, file);
+      await sleep(1200);
     } else if (verb === 'shot') await shot(rest);
     else console.log('unknown action', action);
   }

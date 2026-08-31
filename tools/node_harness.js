@@ -226,6 +226,18 @@ function writePng(file, width, height, rgba) {
       case 'dump':
         Module._simtowerDumpWindows();
         break;
+      case 'getfile': {
+        // Copy a file out of the wasm file system - a saved tower, say - so a
+        // browser run can be handed the same bytes.
+        const [from, to] = rest.split('|');
+        try {
+          fs.writeFileSync(to, Buffer.from(Module.FS.readFile(from)));
+          console.log('pulled', from, '->', to);
+        } catch (error) {
+          console.log('could not read', from, String(error));
+        }
+        break;
+      }
       case 'pack': {
         // The pack as this build assembled it, for comparing against the one
         // the Python tool writes and the native build embeds.

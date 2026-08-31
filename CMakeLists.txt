@@ -32,7 +32,7 @@ target_link_options(simtower PRIVATE
     -sALLOW_MEMORY_GROWTH=1
     -sINITIAL_MEMORY=134217728
     -sSTACK_SIZE=8388608
-    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']
+    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8','FS']
     -sEXPORTED_FUNCTIONS=['_main','_simtowerLoadExecutable','_malloc','_free']
     # One file, so a stale page can never pair a cached .js with a fresh .wasm.
     -sSINGLE_FILE=1
@@ -70,7 +70,7 @@ target_link_options(simtower_node PRIVATE
     -sALLOW_MEMORY_GROWTH=1
     -sINITIAL_MEMORY=134217728
     -sSTACK_SIZE=8388608
-    -sEXPORTED_RUNTIME_METHODS=['HEAPU8','callMain']
+    -sEXPORTED_RUNTIME_METHODS=['HEAPU8','callMain','FS']
     -sEXPORTED_FUNCTIONS=['_main','_simtowerLoadExecutable','_malloc','_free']
     -sINVOKE_RUN=0
     -sASSERTIONS=1)
@@ -103,7 +103,7 @@ target_link_options(simtower_game PRIVATE
     -sALLOW_MEMORY_GROWTH=1
     -sINITIAL_MEMORY=268435456
     -sSTACK_SIZE=16777216
-    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']
+    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8','FS']
     -sEXPORTED_FUNCTIONS=['_main','_simtowerLoadExecutable','_malloc','_free']
     -sSINGLE_FILE=1
     # Saved towers live in an IndexedDB-backed directory so they survive a
@@ -142,7 +142,7 @@ target_link_options(simtower_game_node PRIVATE
     -sALLOW_MEMORY_GROWTH=1
     -sINITIAL_MEMORY=268435456
     -sSTACK_SIZE=16777216
-    -sEXPORTED_RUNTIME_METHODS=['HEAPU8','callMain']
+    -sEXPORTED_RUNTIME_METHODS=['HEAPU8','callMain','FS']
     -sEXPORTED_FUNCTIONS=['_main','_simtowerLoadExecutable','_malloc','_free']
     -sINVOKE_RUN=0
     -lidbfs.js
