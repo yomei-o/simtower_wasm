@@ -227,6 +227,13 @@ struct State {
     // GetAsyncKeyState whether the mouse button is still down while it drags,
     // and an answer of "never" is a drag that cannot be told from a click.
     unsigned char keys[256] = {};
+
+    // A scroll bar thumb being dragged.  It lives in the frame rather than in
+    // a window of its own, so it cannot use SetCapture: the mouse is routed to
+    // it here until it is let go.
+    HWND scrollDrag = nullptr;
+    bool scrollDragVertical = false;
+    int  scrollDragGrab = 0;           // where in the thumb it was taken hold of
     bool quitting = false;
     int exitCode = 0;
     DWORD lastError = 0;
@@ -273,6 +280,7 @@ void  invalidateArea(const RECT & screenArea);
 void  paintPending();
 void  presentScreen();
 RECT  clientRect(const Window & w);
+RECT  windowScrollRect(const Window & w, bool vertical);
 POINT clientOrigin(const Window & w);
 HWND  windowAtPoint(POINT screen);
 void  dispatchPending();
@@ -282,6 +290,11 @@ LRESULT send(HWND h, UINT msg, WPARAM w, LPARAM l);
 /* The built-in control classes, in win32_control.cpp.  A window with no
    registered class of its own is one of these, and this answers for it. */
 LRESULT controlProc(HWND h, UINT msg, WPARAM w, LPARAM l);
+/* Shared between a SCROLLBAR control and a window's own WS_VSCROLL bar: the
+   same picture and the same arithmetic, drawn in whichever rectangle. */
+void    paintScrollBar(DeviceContext & d, RECT r, const SCROLLINFO & info,
+                       bool vertical);
+int     scrollBarHit(RECT r, POINT p, const SCROLLINFO & info, bool vertical);
 bool    controlHitTransparent(const Window & w);
 void    dialogSetInitialFocus(HWND dialog);
 
@@ -291,7 +304,13 @@ constexpr int kCaptionBarHeight = 19;
 int   menuBarHeight(const Window & w);
 void  drawMenuBar(DeviceContext & d, Window & w);
 void  drawMenuPopup(DeviceContext & d, Window & w);
+void  drawMenuOverlay();
 bool  menuBarClick(Window & w, POINT client);
+bool  menuIsOpen();
+HWND  menuOpenWindow();
+/* A click on the frame, the caption or the menu bar, which Windows never
+   delivers to a window as an ordinary client click. */
+bool  nonClientMouse(HWND hwnd, UINT message, POINT screen);
 
 /* The host also sets the canvas cursor. */
 void  hostSetCursor(const char * css);

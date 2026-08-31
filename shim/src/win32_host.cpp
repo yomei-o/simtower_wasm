@@ -101,6 +101,38 @@ EM_BOOL onMouse(int type, const EmscriptenMouseEvent * e, void *) {
     const POINT origin = clientOrigin(*w);
     const LPARAM pos = MAKELPARAM(s.mouse.x - origin.x, s.mouse.y - origin.y);
 
+    // The frame, the caption bar, the menu bar and the scroll bars answer for
+    // themselves - including a thumb mid-drag, which is why moves and releases
+    // are offered too and why a drag outranks a capture.
+    if (!s.capture || s.scrollDrag) {
+        UINT frameMessage = 0;
+        switch (type) {
+            case EMSCRIPTEN_EVENT_MOUSEDOWN:
+                frameMessage = buttonFromDom(e->button);
+                break;
+            case EMSCRIPTEN_EVENT_MOUSEUP: {
+                const int downMessage = buttonFromDom(e->button);
+                frameMessage = downMessage ? downMessage + 1 : 0;
+                break;
+            }
+            case EMSCRIPTEN_EVENT_MOUSEMOVE: frameMessage = WM_MOUSEMOVE; break;
+            case EMSCRIPTEN_EVENT_DBLCLICK: frameMessage = WM_LBUTTONDBLCLK; break;
+            default: break;
+        }
+        if (frameMessage && nonClientMouse(target, frameMessage, s.mouse)) {
+            if (type == EMSCRIPTEN_EVENT_MOUSEUP) {
+                g_leftDown = g_leftDown && buttonFromDom(e->button) != WM_LBUTTONDOWN;
+                s.keys[VK_LBUTTON] = g_leftDown ? 0x80 : 0;
+            }
+            if (type == EMSCRIPTEN_EVENT_MOUSEDOWN &&
+                buttonFromDom(e->button) == WM_LBUTTONDOWN) {
+                g_leftDown = true;
+                s.keys[VK_LBUTTON] = 0x80;
+            }
+            return EM_TRUE;
+        }
+    }
+
     switch (type) {
         case EMSCRIPTEN_EVENT_MOUSEMOVE:
             post(target, WM_MOUSEMOVE,

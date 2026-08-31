@@ -27,6 +27,17 @@ int borderWidth(const Window & w) {
     return 0;
 }
 
+// A window's own scroll bars stand inside the frame and outside the client
+// area, so the client is smaller by exactly this much - which is what the port
+// measures when it installs their ranges.
+const int kScrollThickness = 16;
+int vScrollWidth(const Window & w) {
+    return (w.style & WS_VSCROLL) ? kScrollThickness : 0;
+}
+int hScrollHeight(const Window & w) {
+    return (w.style & WS_HSCROLL) ? kScrollThickness : 0;
+}
+
 }   // namespace
 
 // Defined below, next to the rest of the frame drawing; needed by PeekMessage,
@@ -64,11 +75,29 @@ POINT parentClientOrigin(const Window & w) {
 RECT clientRect(const Window & w) {
     const int b = borderWidth(w);
     RECT r{0, 0,
-           w.rect.right - w.rect.left - b * 2,
-           w.rect.bottom - w.rect.top - b * 2 - captionHeight(w) - menuBarHeight(w)};
+           w.rect.right - w.rect.left - b * 2 - vScrollWidth(w),
+           w.rect.bottom - w.rect.top - b * 2 - captionHeight(w)
+               - menuBarHeight(w) - hScrollHeight(w)};
     if (r.right < 0) r.right = 0;
     if (r.bottom < 0) r.bottom = 0;
     return r;
+}
+
+// The two bars, in screen coordinates, for drawing and for hit testing.
+RECT windowScrollRect(const Window & w, bool vertical) {
+    const int b = borderWidth(w);
+    const POINT origin = clientOrigin(w);
+    const RECT client = clientRect(w);
+    if (vertical)
+        return RECT{origin.x + client.right, origin.y,
+                    origin.x + client.right + vScrollWidth(w),
+                    origin.y + client.bottom};
+    // It stops where the vertical bar begins, so its right arrow is not hidden
+    // under the corner square the two of them leave between each other.
+    return RECT{origin.x, origin.y + client.bottom,
+                (w.style & WS_VSCROLL) ? origin.x + client.right
+                                       : w.rect.right - b,
+                origin.y + client.bottom + hScrollHeight(w)};
 }
 
 
@@ -583,6 +612,123 @@ extern "C" BOOL EnumChildWindows(HWND hwnd, WNDENUMPROC proc, LPARAM param) {
 
 /* ------------------------------------------------------------- hit testing */
 
+// The frame, the caption and the menu bar are not the client area, and Windows
+// does not deliver a click on them as a client click.  The port's own window
+// procedure reads WM_LBUTTONDOWN as an attempt to build something, so a click
+// on the File menu arriving there - at a negative y, no less - was a click on
+// the sky.  It answered "Cannot place item there", which is exactly right and
+// exactly not what was asked.
+// Where along a scroll bar a position sits, and back again.  One place for the
+// arithmetic so the thumb a drag produces is the thumb that gets drawn.
+static int scrollPositionAt(const Window & w, bool vertical, int along) {
+    const SCROLLINFO & info = w.scroll[vertical ? SB_VERT : SB_HORZ];
+    const RECT bar = windowScrollRect(w, vertical);
+    const int length = vertical ? bar.bottom - bar.top : bar.right - bar.left;
+    const int arrow = std::min(16, length / 2);
+    const int span = std::max(1, info.nMax - info.nMin + 1);
+    const int page = std::max(1, (int)info.nPage);
+    const int track = std::max(1, length - arrow * 2);
+    const int size = std::max(8, std::min(track, track * page / span));
+    const int room = std::max(1, track - size);
+    const int reach = std::max(1, span - page);
+    const int offset = std::max(0, std::min(room, along - arrow));
+    return info.nMin + offset * reach / room;
+}
+
+static int scrollThumbOffset(const Window & w, bool vertical) {
+    const SCROLLINFO & info = w.scroll[vertical ? SB_VERT : SB_HORZ];
+    const RECT bar = windowScrollRect(w, vertical);
+    const int length = vertical ? bar.bottom - bar.top : bar.right - bar.left;
+    const int arrow = std::min(16, length / 2);
+    const int span = std::max(1, info.nMax - info.nMin + 1);
+    const int page = std::max(1, (int)info.nPage);
+    const int track = std::max(1, length - arrow * 2);
+    const int size = std::max(8, std::min(track, track * page / span));
+    const int room = std::max(0, track - size);
+    const int reach = std::max(1, span - page);
+    const int position = std::min(reach, std::max(0, info.nPos - info.nMin));
+    return arrow + room * position / reach;
+}
+
+bool nonClientMouse(HWND hwnd, UINT message, POINT screen) {
+    State & s = state();
+
+    // A thumb that has been taken hold of keeps the mouse until it is released.
+    if (s.scrollDrag) {
+        Window * dragged = window(s.scrollDrag);
+        if (!dragged) { s.scrollDrag = nullptr; return true; }
+        const bool vertical = s.scrollDragVertical;
+        const RECT bar = windowScrollRect(*dragged, vertical);
+        const int along = (vertical ? screen.y - bar.top : screen.x - bar.left)
+                        - s.scrollDragGrab;
+        const int position = scrollPositionAt(*dragged, vertical, along);
+        if (message == WM_MOUSEMOVE) {
+            send(s.scrollDrag, vertical ? WM_VSCROLL : WM_HSCROLL,
+                 MAKEWPARAM(SB_THUMBTRACK, position), 0);
+            return true;
+        }
+        if (message == WM_LBUTTONUP) {
+            HWND target = s.scrollDrag;
+            s.scrollDrag = nullptr;
+            send(target, vertical ? WM_VSCROLL : WM_HSCROLL,
+                 MAKEWPARAM(SB_THUMBPOSITION, position), 0);
+            send(target, vertical ? WM_VSCROLL : WM_HSCROLL,
+                 MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+            return true;
+        }
+        return true;
+    }
+
+    const bool press = message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK;
+
+    // An open popup takes the next click wherever it lands: on one of its own
+    // items, or anywhere else, which dismisses it.
+    if (menuIsOpen() && press) {
+        Window * bar = window(menuOpenWindow());
+        if (bar) {
+            const POINT origin = clientOrigin(*bar);
+            menuBarClick(*bar, POINT{screen.x - origin.x, screen.y - origin.y});
+            return true;
+        }
+    }
+
+    Window * w = window(hwnd);
+    if (!w) return false;
+    const RECT client = clientRect(*w);
+    const POINT origin = clientOrigin(*w);
+    const POINT p{screen.x - origin.x, screen.y - origin.y};
+    if (PtInRect(&client, p)) return false;
+
+    // The window's own scroll bars are part of the frame too.
+    if (press) {
+        for (int axis = 0; axis < 2; axis++) {
+            const bool vertical = axis == 0;
+            if (!(w->style & (vertical ? WS_VSCROLL : WS_HSCROLL))) continue;
+            const RECT bar = windowScrollRect(*w, vertical);
+            if (!PtInRect(&bar, screen)) continue;
+            const SCROLLINFO & info = w->scroll[vertical ? SB_VERT : SB_HORZ];
+            const RECT local{0, 0, bar.right - bar.left, bar.bottom - bar.top};
+            const POINT at{screen.x - bar.left, screen.y - bar.top};
+            const int code = scrollBarHit(local, at, info, vertical);
+            if (code < 0) return true;
+            if (code == SB_THUMBTRACK) {
+                // Taking hold of the thumb, remembering where on it, so it does
+                // not jump to put its middle under the pointer.
+                state().scrollDrag = hwnd;
+                state().scrollDragVertical = vertical;
+                state().scrollDragGrab =
+                    (vertical ? at.y : at.x) - scrollThumbOffset(*w, vertical);
+                return true;
+            }
+            send(hwnd, vertical ? WM_VSCROLL : WM_HSCROLL,
+                 MAKEWPARAM(code, info.nPos), 0);
+            return true;
+        }
+        menuBarClick(*w, p);
+    }
+    return true;                   // the frame keeps it either way
+}
+
 HWND windowAtPoint(POINT screen) {
     // Top down: the first window the point lands in owns it, which is the
     // paint order read backwards.
@@ -603,6 +749,31 @@ HWND windowAtPoint(POINT screen) {
 
 /* ------------------------------------------------------------------ paint */
 
+// There is no clipping between windows here - one surface, painted in order -
+// so a window repainting itself paints straight over anything standing on top
+// of it.  Whatever it will cover has to be queued to paint again after it.
+static void invalidateAbove(const Window & w) {
+    State & s = state();
+    uintptr_t self = 0;
+    for (auto & entry : s.windows)
+        if (&entry.second == &w) { self = entry.first; break; }
+    if (!self) return;
+
+    auto at = std::find(s.zorder.begin(), s.zorder.end(), self);
+    if (at == s.zorder.end()) return;
+    for (auto it = at + 1; it != s.zorder.end(); ++it) {
+        Window * above = window((HWND)*it);
+        if (!above || !above->visible) continue;
+        RECT overlap;
+        if (!IntersectRect(&overlap, &w.rect, &above->rect)) continue;
+        // Marked directly rather than through invalidate(), because each of
+        // these would otherwise walk the rest of the order again for itself.
+        above->invalid = clientRect(*above);
+        above->needsPaint = true;
+        above->eraseOnPaint = true;
+    }
+}
+
 void invalidate(Window & w, const RECT * r, bool erase) {
     const RECT client = clientRect(w);
     const RECT area = r ? *r : client;
@@ -615,6 +786,7 @@ void invalidate(Window & w, const RECT * r, bool erase) {
     }
     w.needsPaint = true;
     w.eraseOnPaint = w.eraseOnPaint || erase;
+    invalidateAbove(w);
 }
 
 extern "C" BOOL InvalidateRect(HWND hwnd, const RECT * r, BOOL erase) {
@@ -763,6 +935,24 @@ void drawFrame(Window & w) {
                  fromColorref(GetSysColor(COLOR_MENU)));
         drawMenuBar(md, w);
     }
+
+    // The window's own scroll bars.  The port installs their ranges at startup
+    // and answers WM_VSCROLL/WM_HSCROLL; until they were drawn there was
+    // nothing to answer with, and a strip of bare window where they belong.
+    DeviceContext sd = d;
+    sd.origin = POINT{0, 0};
+    if (w.style & WS_VSCROLL)
+        paintScrollBar(sd, windowScrollRect(w, true), w.scroll[SB_VERT], true);
+    if (w.style & WS_HSCROLL)
+        paintScrollBar(sd, windowScrollRect(w, false), w.scroll[SB_HORZ], false);
+    if ((w.style & WS_VSCROLL) && (w.style & WS_HSCROLL)) {
+        // The square where the two meet belongs to neither.
+        const RECT vertical = windowScrollRect(w, true);
+        const RECT horizontal = windowScrollRect(w, false);
+        fillRect(sd, RECT{vertical.left, horizontal.top,
+                          vertical.right, horizontal.bottom},
+                 fromColorref(GetSysColor(COLOR_BTNFACE)));
+    }
 }
 
 void invalidateArea(const RECT & area) {
@@ -802,7 +992,12 @@ void paintPending() {
     }
 }
 
-void presentScreen() { hostPresent(state().screen); }
+void presentScreen() {
+    // An open menu is drawn here rather than with the frame, so that it lands
+    // on top of whatever was painted after the frame was.
+    drawMenuOverlay();
+    hostPresent(state().screen);
+}
 
 
 /* ---------------------------------------------------------------- messages */

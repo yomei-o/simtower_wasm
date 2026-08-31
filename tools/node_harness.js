@@ -148,7 +148,11 @@ function writePng(file, width, height, rgba) {
   const MOUSEMOVE = 8, MOUSEDOWN = 5, MOUSEUP = 6, DBLCLICK = 7;
 
   for (const action of actions) {
-    const [verb, rest] = action.split(':');
+    // Split on the first colon only: a Windows path in shot:C:/... has one of
+    // its own, and splitting on every colon loses the drive letter.
+    const colon = action.indexOf(':');
+    const verb = colon < 0 ? action : action.slice(0, colon);
+    const rest = colon < 0 ? '' : action.slice(colon + 1);
     const parts = (rest || '').split(',');
     switch (verb) {
       case 'wait':
@@ -168,6 +172,24 @@ function writePng(file, width, height, rgba) {
         Module._simtowerInjectMouse(MOUSEUP, +parts[0], +parts[1], 0);
         await settle(120);
         break;
+      case 'drag': {
+        // Press, move in steps, release - which is the only way to test
+        // anything that tracks the pointer while a button is held.
+        const [x1, y1, x2, y2] = parts.map(Number);
+        Module._simtowerInjectMouse(MOUSEMOVE, x1, y1, 0);
+        await settle(30);
+        Module._simtowerInjectMouse(MOUSEDOWN, x1, y1, 0);
+        await settle(60);
+        for (let step = 1; step <= 8; step++) {
+          const x = Math.round(x1 + (x2 - x1) * step / 8);
+          const y = Math.round(y1 + (y2 - y1) * step / 8);
+          Module._simtowerInjectMouse(MOUSEMOVE, x, y, 0);
+          await settle(40);
+        }
+        Module._simtowerInjectMouse(MOUSEUP, x2, y2, 0);
+        await settle(200);
+        break;
+      }
       case 'dbl':
         Module._simtowerInjectMouse(DBLCLICK, +parts[0], +parts[1], 0);
         await settle(120);

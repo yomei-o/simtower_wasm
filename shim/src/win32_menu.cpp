@@ -19,6 +19,7 @@ const int kItemPadding = 8;
 // Which top-level item is open, if any, and where its popup sits.
 HMENU g_openMenu = nullptr;
 HWND  g_openOwner = nullptr;
+HWND  g_openBar = nullptr;         // the window whose bar dropped it
 RECT  g_openRect = {0, 0, 0, 0};
 
 std::string itemLabel(const MenuItem & item) {
@@ -223,8 +224,26 @@ void drawMenuBar(DeviceContext & d, Window & w) {
         x += extent.cx + kItemPadding * 2;
     }
 
-    if (g_openMenu && g_openOwner == nullptr) return;
-    if (g_openMenu) drawMenuPopup(d, w);
+}
+
+// The dropped popup goes on last, over everything, because the frame is drawn
+// before WM_PAINT and the window's own client area would paint straight over
+// it.  Screen coordinates are the menu bar's, which is where its item bounds
+// were recorded and where a click is resolved against them.
+void drawMenuOverlay() {
+    if (!g_openMenu) return;
+    Window * w = window(menuOpenWindow());
+    if (!w || !w->visible) return;
+
+    DeviceContext d{};
+    d.target = std::shared_ptr<Surface>(&state().screen, [](Surface *) {});
+    POINT origin = clientOrigin(*w);
+    origin.y -= menuBarHeight(*w);
+    d.origin = origin;
+    d.font = GetStockObject(SYSTEM_FONT);
+    d.bkMode = TRANSPARENT;
+    d.textAlign = TA_LEFT | TA_TOP;
+    drawMenuPopup(d, *w);
 }
 
 // The dropped popup, drawn over the client area.  Its own coordinates are the
@@ -279,9 +298,16 @@ void drawMenuPopup(DeviceContext & d, Window & w) {
 
 // Returns true when the click belonged to the menu, so the window's own handler
 // does not also see it.
+bool menuIsOpen() { return g_openMenu != nullptr; }
+HWND menuOpenWindow() { return g_openBar; }
+
 bool menuBarClick(Window & w, POINT client) {
     Menu * bar = menu(w.menu);
     if (!bar) return false;
+
+    HWND self = nullptr;
+    for (auto & entry : state().windows)
+        if (&entry.second == &w) self = (HWND)entry.first;
 
     // The bar sits above the client area, so a click in it arrives with a
     // negative y once it has been converted into client coordinates.
@@ -292,11 +318,14 @@ bool menuBarClick(Window & w, POINT client) {
         for (MenuItem & item : bar->items) {
             if (x < item.bounds.left || x >= item.bounds.right) continue;
             if (!item.submenu) {
-                if (item.id) post((HWND)nullptr, WM_COMMAND, item.id, 0);
+                // A bar item with no popup is a command in its own right, and
+                // it belongs to the window whose bar it is - not to nobody.
+                if (item.id) post(self, WM_COMMAND, item.id, 0);
                 return true;
             }
             g_openMenu = (g_openMenu == item.submenu) ? nullptr : item.submenu;
             g_openOwner = nullptr;
+            g_openBar = g_openMenu ? self : nullptr;
             g_openRect.left = item.bounds.left;
             invalidate(w, nullptr, true);
             return true;
@@ -318,18 +347,16 @@ bool menuBarClick(Window & w, POINT client) {
             if (inBar.y < item.bounds.top || inBar.y >= item.bounds.bottom) continue;
             g_openMenu = nullptr;
             invalidate(w, nullptr, true);
-            if (!(item.flags & (MF_SEPARATOR | MF_GRAYED)) && item.id) {
-                HWND owner = nullptr;
-                for (auto & entry : state().windows)
-                    if (&entry.second == &w) owner = (HWND)entry.first;
-                post(owner, WM_COMMAND, item.id, 0);
-            }
+            g_openBar = nullptr;
+            if (!(item.flags & (MF_SEPARATOR | MF_GRAYED)) && item.id)
+                post(g_openOwner ? g_openOwner : self, WM_COMMAND, item.id, 0);
             return true;
         }
     }
 
     // Anywhere else dismisses it.
     g_openMenu = nullptr;
+    g_openBar = nullptr;
     invalidate(w, nullptr, true);
     return true;
 }
@@ -340,6 +367,7 @@ extern "C" BOOL TrackPopupMenu(HMENU handle, UINT, int x, int, int, HWND hwnd,
     if (!w) return FALSE;
     g_openMenu = handle;
     g_openOwner = hwnd;
+    g_openBar = hwnd;
     g_openRect.left = x - w->rect.left;
     invalidate(*w, nullptr, true);
     return TRUE;

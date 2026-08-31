@@ -706,6 +706,104 @@ bool routeDropListClick(Window & list, HWND hwnd, UINT msg, LPARAM lp) {
 
 /* ------------------------------------------------------------- scroll bar */
 
+LRESULT scrollProc(Window & w, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+
+}   // namespace
+
+// One scroll bar, drawn one way.  A window's own WS_VSCROLL bar lives in the
+// frame and a SCROLLBAR control is a window of its own, but they are the same
+// picture and the same arithmetic, so they are the same code.
+void paintScrollBar(DeviceContext & d, RECT r, const SCROLLINFO & info,
+                    bool vertical) {
+    const int length = vertical ? r.bottom - r.top : r.right - r.left;
+    if (length <= 0) return;
+    const int arrow = std::min(kScrollArrowSize, length / 2);
+
+    // The shaft is a half-tone of white on grey, which is what Windows 3.1
+    // drew and what makes the thumb read as solid against it.
+    const uint32_t pale = fromColorref(GetSysColor(COLOR_3DHILIGHT));
+    const uint32_t grey = fromColorref(GetSysColor(COLOR_SCROLLBAR));
+    for (int y = r.top; y < r.bottom; y++)
+        for (int x = r.left; x < r.right; x++)
+            fillRect(d, RECT{x, y, x + 1, y + 1}, ((x + y) & 1) ? pale : grey);
+
+    RECT first = r, last = r;
+    if (vertical) { first.bottom = first.top + arrow; last.top = last.bottom - arrow; }
+    else          { first.right = first.left + arrow; last.left = last.right - arrow; }
+
+    const uint32_t face = fromColorref(GetSysColor(COLOR_BTNFACE));
+    const uint32_t light = fromColorref(GetSysColor(COLOR_3DHILIGHT));
+    const uint32_t shadow = fromColorref(GetSysColor(COLOR_BTNSHADOW));
+    const uint32_t ink = fromColorref(GetSysColor(COLOR_BTNTEXT));
+
+    auto raised = [&](RECT box) {
+        fillRect(d, box, face);
+        fillRect(d, RECT{box.left, box.top, box.right - 1, box.top + 1}, light);
+        fillRect(d, RECT{box.left, box.top, box.left + 1, box.bottom - 1}, light);
+        fillRect(d, RECT{box.left, box.bottom - 1, box.right, box.bottom}, shadow);
+        fillRect(d, RECT{box.right - 1, box.top, box.right, box.bottom}, shadow);
+    };
+    // A triangle as shortening rows, pointing whichever way it is asked to.
+    auto arrowhead = [&](RECT box, int dx, int dy) {
+        const int cx = (int)(box.left + box.right) / 2;
+        const int cy = (int)(box.top + box.bottom) / 2;
+        for (int i = 0; i < 4; i++) {
+            if (dy) {
+                const int y = dy > 0 ? cy - 2 + i : cy + 2 - i;
+                fillRect(d, RECT{cx - 3 + i, y, cx + 4 - i, y + 1}, ink);
+            } else {
+                const int x = dx > 0 ? cx - 2 + i : cx + 2 - i;
+                fillRect(d, RECT{x, cy - 3 + i, x + 1, cy + 4 - i}, ink);
+            }
+        }
+    };
+    raised(first);
+    raised(last);
+    arrowhead(first, vertical ? 0 : -1, vertical ? -1 : 0);
+    arrowhead(last,  vertical ? 0 :  1, vertical ?  1 : 0);
+
+    // The thumb says how much of the whole is showing, and where in it.
+    const int span = std::max(1, info.nMax - info.nMin + 1);
+    const int page = std::max(1, (int)info.nPage);
+    const int track = std::max(1, length - arrow * 2);
+    const int size = std::max(8, std::min(track, track * page / span));
+    const int room = std::max(0, track - size);
+    const int reach = std::max(1, span - page);
+    const int position = std::min(reach, std::max(0, info.nPos - info.nMin));
+    const int offset = room * position / reach;
+    RECT box = r;
+    if (vertical) { box.top = first.bottom + offset; box.bottom = box.top + size; }
+    else          { box.left = first.right + offset; box.right = box.left + size; }
+    raised(box);
+}
+
+// Which part of a scroll bar a point is in, as the SB_ code a WM_VSCROLL or
+// WM_HSCROLL carries.
+int scrollBarHit(RECT r, POINT p, const SCROLLINFO & info, bool vertical) {
+    const int length = vertical ? r.bottom - r.top : r.right - r.left;
+    if (length <= 0) return -1;
+    const int arrow = std::min(kScrollArrowSize, length / 2);
+    const int along = vertical ? p.y - r.top : p.x - r.left;
+    if (along < 0 || along >= length) return -1;
+    if (along < arrow) return vertical ? SB_LINEUP : SB_LINELEFT;
+    if (along >= length - arrow) return vertical ? SB_LINEDOWN : SB_LINERIGHT;
+
+    const int span = std::max(1, info.nMax - info.nMin + 1);
+    const int page = std::max(1, (int)info.nPage);
+    const int track = std::max(1, length - arrow * 2);
+    const int size = std::max(8, std::min(track, track * page / span));
+    const int room = std::max(0, track - size);
+    const int reach = std::max(1, span - page);
+    const int position = std::min(reach, std::max(0, info.nPos - info.nMin));
+    const int offset = room * position / reach;
+    const int inTrack = along - arrow;
+    if (inTrack < offset) return vertical ? SB_PAGEUP : SB_PAGELEFT;
+    if (inTrack >= offset + size) return vertical ? SB_PAGEDOWN : SB_PAGERIGHT;
+    return SB_THUMBTRACK;
+}
+
+namespace {
+
 LRESULT scrollProc(Window & w, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     const bool vertical = (w.style & SBS_VERT) != 0;
     SCROLLINFO & info = w.scroll[vertical ? SB_VERT : SB_HORZ];
@@ -714,66 +812,20 @@ LRESULT scrollProc(Window & w, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             if (!hdc) return 0;
-            RECT client = clientRect(w);
             askParent(w, hwnd, hdc, WM_CTLCOLORSCROLLBAR,
                       GetSysColor(COLOR_SCROLLBAR));
-            HBRUSH shaft = CreateSolidBrush(GetSysColor(COLOR_SCROLLBAR));
-            FillRect(hdc, &client, shaft);
-            DeleteObject(shaft);
-
-            const int length = vertical ? client.bottom - client.top
-                                        : client.right - client.left;
-            const int arrow = std::min(kScrollArrowSize, length / 2);
-            RECT first = client, last = client;
-            if (vertical) { first.bottom = first.top + arrow;
-                            last.top = last.bottom - arrow; }
-            else          { first.right = first.left + arrow;
-                            last.left = last.right - arrow; }
-            HBRUSH face = CreateSolidBrush(GetSysColor(COLOR_BTNFACE));
-            FillRect(hdc, &first, face);
-            FillRect(hdc, &last, face);
-            DeleteObject(face);
-            edge(hdc, first, true);
-            edge(hdc, last, true);
-
-            // The thumb, sized by the page against the range, which is what
-            // makes it say how much of the list is showing.
-            const int span = std::max(1, info.nMax - info.nMin + 1);
-            const int page = std::max(1, (int)info.nPage);
-            const int track = std::max(1, length - arrow * 2);
-            const int thumb = std::max(8, std::min(track, track * page / span));
-            const int room = std::max(0, track - thumb);
-            const int reach = std::max(1, span - page);
-            const int offset = room * std::max(0, info.nPos - info.nMin) / reach;
-            RECT box = client;
-            if (vertical) { box.top = first.bottom + offset;
-                            box.bottom = box.top + thumb; }
-            else          { box.left = first.right + offset;
-                            box.right = box.left + thumb; }
-            HBRUSH thumbFace = CreateSolidBrush(GetSysColor(COLOR_BTNFACE));
-            FillRect(hdc, &box, thumbFace);
-            DeleteObject(thumbFace);
-            edge(hdc, box, true);
+            if (DeviceContext * d = dc(hdc))
+                paintScrollBar(*d, clientRect(w), info, vertical);
             EndPaint(hwnd, &ps);
             return 0;
         }
         case WM_LBUTTONDOWN: {
             POINT p{(int)(short)LOWORD(lp), (int)(short)HIWORD(lp)};
-            const RECT client = clientRect(w);
-            const int length = vertical ? client.bottom - client.top
-                                        : client.right - client.left;
-            const int arrow = std::min(kScrollArrowSize, length / 2);
-            const int along = vertical ? p.y - client.top : p.x - client.left;
-            int code;
-            if (along < arrow) code = vertical ? SB_LINEUP : SB_LINELEFT;
-            else if (along >= length - arrow) code = vertical ? SB_LINEDOWN
-                                                              : SB_LINERIGHT;
-            else if (along < length / 2) code = vertical ? SB_PAGEUP
-                                                         : SB_PAGELEFT;
-            else code = vertical ? SB_PAGEDOWN : SB_PAGERIGHT;
+            const int code = scrollBarHit(clientRect(w), p, info, vertical);
+            if (code < 0) return 0;
             if (w.parent)
                 send(w.parent, vertical ? WM_VSCROLL : WM_HSCROLL,
-                     MAKEWPARAM(code, 0), (LPARAM)hwnd);
+                     MAKEWPARAM(code, info.nPos), (LPARAM)hwnd);
             return 0;
         }
         default:
