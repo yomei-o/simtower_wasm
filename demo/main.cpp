@@ -72,6 +72,19 @@ void paint(HWND hwnd, HDC hdc) {
     FillRect(hdc, &client, background);
     DeleteObject(background);
 
+    // A bright frame around the client area.  Without it, a canvas that is
+    // present but has not been drawn into looks exactly like a canvas that is
+    // not there, and that ambiguity has already cost a round trip.
+    HPEN edge = CreatePen(PS_SOLID, 1, RGB(255, 176, 0));
+    HGDIOBJ wasPen = SelectObject(hdc, edge);
+    MoveToEx(hdc, 1, 1, nullptr);
+    LineTo(hdc, client.right - 2, 1);
+    LineTo(hdc, client.right - 2, client.bottom - 2);
+    LineTo(hdc, 1, client.bottom - 2);
+    LineTo(hdc, 1, 1);
+    SelectObject(hdc, wasPen);
+    DeleteObject(edge);
+
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, RGB(255, 255, 255));
     SelectObject(hdc, CreateFontW(-13, 0, 0, 0, FW_NORMAL, 0, 0, 0, 0, 0, 0, 0,
@@ -163,6 +176,16 @@ void frame() {
     dispatchPending();
     paintPending();
     presentScreen();
+
+    // The first few frames are announced, because "the page shows text and no
+    // picture" has several causes and this separates them: no line at all means
+    // the loop never ran, lines with no picture means the presentation did.
+    static int announced = 0;
+    if (announced < 3) {
+        announced++;
+        printf("frame %d presented, screen %dx%d\n", announced,
+               state().screen.width, state().screen.height);
+    }
 }
 
 }   // namespace
@@ -182,6 +205,7 @@ int main() {
     State & s = state();
     s.screen.resize(kScreenWidth, kScreenHeight);
     hostInit();
+    printf("main: screen %dx%d\n", s.screen.width, s.screen.height);
 
     WNDCLASSW cls{};
     cls.lpfnWndProc = frameProc;
