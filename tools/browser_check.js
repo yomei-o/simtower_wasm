@@ -99,6 +99,13 @@ function connect(url) {
       }
     });
     socket.addEventListener('error', reject);
+    socket.addEventListener('close', () => {
+      // Otherwise every outstanding command waits for a reply that can no
+      // longer come, and the run looks like the page has hung.
+      for (const { reject: fail } of pending.values())
+        fail(new Error('devtools connection closed'));
+      pending.clear();
+    });
     socket.addEventListener('open', () => resolve({
       send(method, params) {
         const id = nextId++;
@@ -194,7 +201,19 @@ function connect(url) {
     const verb = colon < 0 ? action : action.slice(0, colon);
     const rest = colon < 0 ? '' : action.slice(colon + 1);
     const parts = rest.split(',').map(Number);
-    if (verb === 'wait') await sleep(parts[0] || 100);
+    if (verb === 'wait') {
+      // Long waits go in slices with a cheap command between them.  A DevTools
+      // connection left silent for a minute stops answering, and then the next
+      // screenshot never returns - which reads exactly like the game hanging,
+      // and cost an hour of looking for a hang that was not there.
+      let left = parts[0] || 100;
+      while (left > 0) {
+        const slice = Math.min(left, 10000);
+        await sleep(slice);
+        left -= slice;
+        if (left > 0) await evaluate('0');
+      }
+    }
     else if (verb === 'move') { await mouse('mouseMoved', parts[0], parts[1]); await sleep(60); }
     else if (verb === 'click') {
       await mouse('mouseMoved', parts[0], parts[1]);
