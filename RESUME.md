@@ -14,7 +14,10 @@ WebGL. This repository holds a small Win32 for Emscripten and nothing else.
 `DISTRIBUTION.md` that no licence has been selected for it, so the default
 applies and there is no permission to redistribute a copy. Forking on GitHub is
 permitted, so `tools/fetch_upstream.sh` pulls a pinned fork
-(`yomei-o/simtower-native-windows-port`, commit `9c2685a`) at build time.
+(`yomei-o/simtower-native-windows-port`, branch `floor-edges`) at build time.
+The pin moves every time that fork gains a commit - it is one line in
+`tools/fetch_upstream.sh` - and a build that forgets to move it silently keeps
+the old behaviour.
 
 **Do not commit or serve the original game's resources either.** They belong to
 their rights holders. The page asks the player for their own `SIMTOWER.EXE` and
@@ -73,7 +76,7 @@ shim answers 256 Win32 entry points.
 | Sound heard | It plays - submitted 1, started 1, context running, 50,300 frames of WAVE/20000 at startup - but nobody has listened. The game asks for no other sound in a one-star tower. |
 | The other dialogs | 51 templates; the startup chooser, Finance, About, the message boxes and the command selector have been opened. The rest arrive with events during play. |
 | Long status messages overflow | The info bar's status field is 262 pixels and the port does not clip to it, so a message wider than that runs under the Fund panel. The original fits because its font is narrower than the baked one; there is nothing to clip without clipping the port's own drawing. |
-| Higher ratings | Everything checked is a one-star tower. `TABL/1001` holds five catalog entries - one group of Lobby/Floor/Stairs and four single facilities - which is exactly what the palette shows. Elevators are in `TABL/1002`, so they need a two-star tower and a population to get there. |
+| A tower with people in it | Everything driven so far has a population of zero. Offices and hotel rooms build and stay empty; tenants move in over game days, and only where transport reaches them. Nothing has yet watched a person walk, queue, or ride. The digit debug keys remove the rating wall, so this is now a matter of playing long enough rather than of reaching two stars. |
 
 ## Setting up on another machine
 
@@ -143,8 +146,11 @@ node tools/node_harness.js build/node/simtower_game_node.js frame.png \
      /path/to/SIMTOWER.EXE 8000 click:400,264 wait:4000 dump shot:after.png
 ```
 
-Actions are `wait:<ms> click:<x>,<y> move:<x>,<y> drag:<x1>,<y1>,<x2>,<y2>
-dbl:<x>,<y> key:<name> shot:<file> dump`. `dump` prints the window tree —
+Actions are `wait:<ms> click:<x>,<y> move:<x>,<y> press:<x>,<y>
+release:<x>,<y> drag:<x1>,<y1>,<x2>,<y2> dbl:<x>,<y> key:<name>
+mods:ctrl+shift shot:<file> dump putfile:<from>|<to> getfile:<from>|<to>`.
+`mods:` holds Shift and Control across the actions after it, which is the only
+way to reach the two- and three-story lobby or a Shift replacement. `dump` prints the window tree —
 class, id, rectangle, style, visibility — which is how most of the bugs below
 were found, and far faster than guessing from a picture.
 
@@ -251,10 +257,30 @@ same session to completion while the browser one looked stuck.
   longer included by default" and the mount fails into an ordinary in-memory
   directory, so everything works until the page is reloaded.
 
-### The one change carried against the port
+### Debug keys
+
+Held in the fork, in `apply_original_debug_key` in `native_main.cpp`, taken in
+the message pump rather than in a window procedure - the focus normally sits in
+one of the auxiliary windows, and a debug key that depends on which one is no
+use.
+
+| key | |
+|---|---|
+| `1`..`6` | set the star rating and refill the bank. Most of the game is behind its rating and reaching one takes a real game, which left the renderer above one star close to untestable. |
+| `0` | refill the bank only. |
+| `E` | write every live shaft to stderr: position, settle counter, door state, passengers, direction, target, and each floor's waiting counts. |
+| `T` | write the tower to stderr: rating, lobby height, population, funds, and every floor's tenants as `type@x`. |
+
+Nothing in SimTower binds a digit, so this takes nothing away. `E` and `T` are
+what turn "it looks stuck" into a number that did or did not change;
+`tools/elevator_scenario.sh` plays a tower out and prints them.
+
+### The changes carried against the port
 
 `tools/fetch_upstream.sh` pins the fork's `floor-edges` branch rather than its
-main line.  The one commit on it fixes `render_original_floor_edges`, whose
+main line. On it, oldest first:
+
+* **`beef8e9` floor edges.** `render_original_floor_edges`, whose
 reconstruction of the shared WinG sheet had the fragments' width and height
 swapped and took the standard floor edge from BITMAP/1259 - a bank of hotel
 rooms - instead of BITMAP/1069, the emergency stairs.  The evidence, in case it
@@ -263,7 +289,31 @@ needs revisiting: the fragments are drawn at the floor edge minus 24 and minus
 story tall; BITMAP/1069 is 48 wide, holding the two 24-wide staircases, and
 BITMAP/1001 is 112 wide, holding the two 56-wide canopies; and the port's own
 dimension checks on all five source bitmaps pass, so the ids are not shifted.
-Reverting is one line: pin 9c2685a again.
+  Reverting is one line: pin 9c2685a again.
+* **`fc35789` the ground below the ground line is earth**, from BITMAP/849.
+  Without it everything below `world_y >= 3960` was white.
+* **`785471b`, `e3a0869` a facility carries its own ceiling, and index zero is
+  transparent.** A 24-row facility is bottom-aligned in a 36-row band; nothing
+  drew the twelve rows above it, so there was a transparent gap between every
+  pair of floors. And `merge_original_nonzero_channels` tested the *resolved
+  colour's* channels, which makes index zero opaque because CLUT/1000 resolves
+  it to white - every person sprite arrived in a solid white box. The test is
+  on the source byte.
+* **`ad5dd48`, `588f1c1` the debug keys** above.
+* **`60ad32b` the rating key left the palette unable to build.** It passed
+  argument one to `refresh_original_rating_command`, which forces command mode
+  two. New and Open pass zero.
+* **`4cd55f4` the elevator car overlay.** `render_original_elevator_cars` drew
+  cars only for `word_3c == 0`, a state no shaft the game builds is ever in, so
+  a car's only trace was the floor-number bank turning red - one fixed graphic
+  per floor, which is why the elevator looked frozen. The moving sprite is the
+  BITMAP/1064..1069 car, positioned by `original_elevator_car_visual`'s
+  interpolated y. **`word_3c` is not a view toggle**: it marks a live shaft.
+  `extend_original_elevator_shaft` and both shrinks refuse without it and
+  `original_elevator_service_floor_gate` calls a shaft without it inactive, so
+  clearing it - which was the first attempt, and did draw the car - took the
+  shaft's whole editing surface with it and the user could no longer extend an
+  elevator. The overlay follows the flag now.
 
 ### The private resource type names
 
@@ -284,6 +334,16 @@ inferred. `shim/src/win32_ne.cpp` carries the same table for building the pack
 * **The shell is not a source of any target.** `web/shell.html` is baked in at
   link time, so nothing rebuilt when it changed and the page kept its old text
   while the build reported no work to do. It is a `LINK_DEPENDS` now.
+* **Deploy with `tools/deploy.sh`, never by copying the file.** The game is one
+  2 MB page; served from a fixed URL a browser keeps showing an old build, which
+  is indistinguishable from a fix that did not work, and telling a player to
+  clear their cache is not a fix. The game goes to `docs/play.html` and
+  `docs/index.html` is a few hundred bytes that redirect to
+  `play.html?v=<stamp>`. A new build is a new URL and can never come out of a
+  cache; only the tiny index can go stale, and Pages revalidates that inside its
+  ten-minute max-age. The build is also stamped bottom-left on the page, so a
+  screenshot says which build produced it - `BUILD_STAMP` in `web/shell.html`
+  is the placeholder deploy.sh fills.
 * **GitHub Pages defaults to serving the repository root**, then runs Jekyll
   over it and serves a rendered README, which looks exactly like a page whose
   wasm has gone missing. `gh api -X PUT repos/<owner>/<repo>/pages -f
@@ -313,25 +373,49 @@ inferred. `shim/src/win32_ne.cpp` carries the same table for building the pack
   stub also needs `querySelector`, and the harness must `process.exit`
   explicitly or the main loop keeps the event loop alive and nothing flushes.
 
-## Next
+## Next: what play-testing has reported and nobody has fixed
 
-1. **Play it to two stars.** Everything checked is a one-star tower, and the
-   whole of the transport catalogue - elevators, escalators, the service
-   elevator - is in `TABL/1002`, which needs a population to reach. Offices
-   build and sit "For sale"; tenants arrive over game days.  Note the one-star
-   group holds Lobby, Floor and *Escalator* - not stairs - and the game refuses
-   an escalator with "Escalators available only at commercial spaces". This wants a long
-   scripted session rather than another fix, and it is the one large piece of
-   the game nobody has seen run.
-2. **Hear the sound.** It plays - submitted 1, started 1, 50,300 frames at
-   startup - and nobody has listened. A second pair of ears is the only test.
-3. **The event dialogs.** The templates that arrive during play - the VIP, the
-   fire, the alerts - have never come up. `tools/menu_sweep.py` covers the ones
-   a menu can reach.
-4. **Compare against the native build pixel for pixel.** It builds and runs;
-   the only thing in the way was that a locked desktop screenshots black.
-   `drive.ps1` already sizes the native window to the canvas's own geometry, so
-   a diff is a short step from there.
+These come from someone playing the deployed page, in the order they were
+raised. Reproduce with `tools/elevator_scenario.sh` or the harness rather than
+by reasoning about the code: every one of these looked like a different bug
+from the one it was.
+
+1. **The ceiling pattern is wrong.** The twelve rows above a facility are
+   currently taken from cell two of BITMAP/1000 (`kFloorCeilingCell` in
+   `render_original_direct_facilities`). That was chosen because it has to
+   match what an empty Floor carries along the same row, but BITMAP/1000 is
+   96x36 of mostly flat colour bars and looks more like a legend than floor
+   art, and the player says the pattern is still wrong. Type 0 - Floor - is
+   *not* in `kDirectFacilityGraphics`, so the empty floor band is drawn
+   somewhere else; find that, and take the ceiling from the same source it
+   uses. The lobby is expected to differ from an ordinary ceiling: "the ceiling
+   above the lobby has its own pattern".
+2. **The tool palette icons do not match their entries.** Raised as "the
+   elevator cell shows a bed". Re-check this from scratch: the type numbers in
+   `TABL/1000` are not the names one would guess - **type 3 is a hotel single**
+   (BITMAP/1192 is a bed), not an office, and an earlier note in this file that
+   said otherwise came from a guessed name table, not from the data. Read the
+   names out of `kDirectFacilityGraphics` and the bitmaps themselves.
+3. **Nobody rides.** With three floors of rooms served by a shaft, population
+   stays zero and the cars never leave their home floor. Tenants only move in
+   where transport reaches them and only over game days, so this may be nothing
+   but patience - but it has never been observed, so it may equally be a bug.
+   `T` prints the population; `E` prints whether a car moved.
+4. **Dragging to extend a lobby draws wrongly**, and **re-placing a lobby over
+   an existing one** goes wrong. The construction preview has no drag state.
+5. **The two- and three-story lobby is Ctrl and Ctrl+Shift** on the *first*
+   lobby press (`begin_original_lobby_drag`), and only then - `old_height == 0`.
+   It works; it is just undiscoverable. The harness can hold both now:
+   `mods:ctrl` before a `drag:`.
+
+## Still unseen
+
+* **Hear the sound.** It plays - submitted 1, started 1, 50,300 frames at
+  startup - and nobody has listened. A second pair of ears is the only test.
+* **The event dialogs.** The templates that arrive during play - the VIP, the
+  fire, the alerts - have never come up.
+* **Compare against the native build pixel for pixel.** It builds and runs; the
+  only thing in the way was that a locked desktop screenshots black.
 
 ## File map
 
