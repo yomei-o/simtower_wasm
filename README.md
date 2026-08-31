@@ -9,6 +9,10 @@ The page reads the executable you choose and never uploads it.  Choose one and
 SimTower starts: its own New Tower chooser, the tower, the map, the tool
 palette, the menus, the simulation and the sound.
 
+Towers can be saved and opened again.  They live in the browser, so the page
+also lists them: each is a button that downloads the `.TDT`, and there is an
+import for one from anywhere - including a tower saved by the real game.
+
 ## What is in this repository
 
 Only this project's own work:
