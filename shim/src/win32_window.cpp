@@ -1080,11 +1080,30 @@ static void fireTimers() {
 // Published, and the thread handed back, at the one moment nothing is half
 // drawn.  Rate-limited rather than every call: the port polls constantly, and
 // yielding on each poll would leave no time to simulate in.
+// Whether anything on screen is still waiting to be drawn.
+static bool anyPaintPending() {
+    for (auto & entry : state().windows) {
+        const Window & w = entry.second;
+        if (!w.destroyed && w.visible && w.needsPaint) return true;
+    }
+    return false;
+}
+
 static void publishAndYield() {
 #ifdef __EMSCRIPTEN__
     static double lastPublish = 0;
     const double now = hostNow();
     if (now - lastPublish < 16.0) return;
+    // Never publish a half-drawn frame.  The port redraws the map window
+    // straight through a GetDC, which covers the tool palette standing over it;
+    // the palette is queued to repaint and does, one message later - but a frame
+    // published in between has a hole where the palette was.  Yield anyway, so
+    // the tab stays alive, and give up waiting after a tenth of a second in case
+    // something never paints at all.
+    if (anyPaintPending() && now - lastPublish < 100.0) {
+        emscripten_sleep(0);
+        return;
+    }
     lastPublish = now;
     presentScreen();
     emscripten_sleep(0);

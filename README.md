@@ -5,7 +5,9 @@ WebAssembly, with no WebGL — the game's GDI drawing is rasterised in software.
 
 ### [Live demo](https://yomei-o.github.io/simtower_wasm/) — bring your own `SIMTOWER.EXE`
 
-The page reads the executable you choose and never uploads it.
+The page reads the executable you choose and never uploads it.  Choose one and
+SimTower starts: its own New Tower chooser, the tower, the map, the tool
+palette, the menus, the simulation and the sound.
 
 ## What is in this repository
 
@@ -46,13 +48,24 @@ blob, so none of Windows' resource compiler is needed.
 
 Taken from the source rather than guessed at:
 
-- **42,438** lines across the ported translation units.
-- **81** Win32 names needed by the game core (`original_*.cpp`) — mostly GDI
-  objects, menus and resource lookup.
-- The window, the message loop and the dialogs live in the host
-  (`native_main.cpp`), which this project replaces rather than shims.
+- **42,438** lines across the ported translation units, and **256** Win32 entry
+  points answered by the shim.
 - Dialogs come from memory as `DLGTEMPLATE`s via `DialogBoxIndirectParamW`, 51
-  of them, using only the standard control classes.
+  of them.  Across all of them: 77 buttons, every one a plain or default
+  pushbutton; 56 statics, all text; 6 drop-down lists; 2 list boxes; 2
+  single-line edits; one vertical scroll bar.  No check boxes, radio buttons,
+  group boxes or owner-draw anywhere, so the shim implements none.
+- `native_main.cpp` — `WinMain`, the window procedure, the dispatcher — is
+  compiled and run rather than replaced.  Its `PeekMessage` loop yields through
+  Asyncify.
+
+## Checking it
+
+`tools/node_harness.js` runs the same wasm on the command line with a stubbed
+canvas: it can be scripted with clicks, drags and keys, dump the window tree,
+and write what was presented to a PNG.  `tools/browser_check.js` does the same
+to the published page in headless Edge, through the DevTools protocol, with the
+page's own file input and real mouse events.  Both are in `RESUME.md`.
 
 ## Building
 

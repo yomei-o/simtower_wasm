@@ -42,6 +42,12 @@ set_target_properties(simtower PROPERTIES
     SUFFIX ".html"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/docs")
 
+# The shell is baked into the output at link time but is not a source of any
+# target, so nothing rebuilds when it changes: the page keeps its old text and
+# the build says there was no work to do.
+set_property(TARGET simtower APPEND PROPERTY
+             LINK_DEPENDS "${CMAKE_SOURCE_DIR}/web/shell.html")
+
 
 # A second build for the command line, so the renderer can be checked without a
 # browser.  tools/node_harness.js gives it a fake canvas and writes what was
@@ -104,6 +110,8 @@ target_link_options(simtower_game PRIVATE
 set_target_properties(simtower_game PROPERTIES
     SUFFIX ".html"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/docs")
+set_property(TARGET simtower_game APPEND PROPERTY
+             LINK_DEPENDS "${CMAKE_SOURCE_DIR}/web/shell.html")
 
 # The same thing for the command line, so it can be watched without a browser.
 add_executable(simtower_game_node ${SHIM_SOURCES} ${PORT_SOURCES}

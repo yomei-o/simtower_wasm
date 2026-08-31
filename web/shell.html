@@ -35,8 +35,9 @@
 <body>
   <div id="gate">
     <strong>SimTower on WebAssembly</strong> &mdash; choose your own
-    <code>SIMTOWER.EXE</code> (the 16-bit Windows 3.1 release).
-    Nothing is uploaded: the file is read in this browser and never leaves it.
+    <code>SIMTOWER.EXE</code> (the 16-bit Windows 3.1 release) and the game
+    starts.  Nothing is uploaded: the file is read in this browser and never
+    leaves it.
     <input id="file" type="file" accept=".exe,.EXE">
   </div>
   <div id="status">starting...</div>
@@ -107,7 +108,7 @@
       Module._free(pointer);
 
       statusEl.textContent = count > 0
-        ? count + ' bitmaps decoded - click or press space to page through them'
+        ? count + ' resources read - SimTower is running'
         : 'could not read resources out of ' + file.name
           + ' (see the console for why)';
     };

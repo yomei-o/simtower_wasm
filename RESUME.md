@@ -18,200 +18,239 @@ permitted, so `tools/fetch_upstream.sh` pulls a pinned fork
 
 **Do not commit or serve the original game's resources either.** They belong to
 their rights holders. The page asks the player for their own `SIMTOWER.EXE` and
-`shim/src/win32_ne.cpp` parses it in the browser; the build output is 387 KB with
-nothing copyrighted in it. An earlier attempt embedded a 6 MB resource pack built
-by the upstream Python tools — that worked, and had to be abandoned for exactly
-this reason. Do not put it back.
+`shim/src/win32_ne.cpp` parses it in the browser; the build carries nothing
+copyrighted. An earlier attempt embedded a 6 MB resource pack built by the
+upstream Python tools — that worked, and had to be abandoned for exactly this
+reason. Do not put it back.
 
-## State
+## State: it is a playable game
 
-Working and verified:
+`docs/index.html` is the game, and it has been driven end to end in a real
+browser, headlessly, by `tools/browser_check.js`:
 
-* All **27 game-core translation units, 42,438 lines**, compile clean to wasm.
-* The shim covers windows, messages, painting, GDI, DIB blitting, palettes,
-  menus, resources, strings, time, and a baked bitmap font.
-* **The whole path renders.** `tools/node_harness.js` runs the same wasm on the
-  command line with a stubbed canvas and writes the presented frame to a PNG.
-  It produces SimTower's own title screen at 640x480 with the right palette,
-  inside Windows 3.1 chrome, with a working menu bar and legible text.
-* 499 resources parsed out of the executable, 250 bitmaps decoded — the same
-  count the upstream Python tools report, which is the check that reading the NE
-  directly agrees with building a pack.
+* Choose a `SIMTOWER.EXE` → 499 resources read → the splash, then SimTower's
+  own **New Tower / Load Saved Tower / Quit** chooser.
+* **New Tower** gives a tower: the main window with its menu bar and both
+  scroll bars, the map window, the info bar (`1st WD/1 Q/1st Year`,
+  `Fund $2000000`, `Pop 0`), and the tool palette.
+* The menus drop and their items work. The scroll bars scroll, by arrow, by
+  page and by dragging the thumb.
+* Clicking a facility opens the game's grouped selector; choosing from it and
+  clicking in the world **builds**, and the funds go down. The game answers for
+  itself when it will not: *"Lobbys are only every 15 floors."*
+* The simulation runs — the clock advances and the sky changes with it — at
+  23-28 fps at 800x600.
+* Sound plays through Web Audio. **Not verified by ear yet**: headless says the
+  AudioContext is `running`, which is not the same as hearing it.
 
-* **The browser page works**, confirmed by eye: pick a `SIMTOWER.EXE` at
-  <https://yomei-o.github.io/simtower_wasm/> and the game's bitmaps appear.
+All 27 game-core translation units plus `native_main.cpp` compile to wasm; the
+shim answers 256 Win32 entry points.
 
-What `docs/` holds is the **resource viewer**, not the game. The game target
-(`simtower_game`, with Asyncify) builds and runs but stops in the UI resources,
-so deploying it would only show a failure; swap it in once it gets further.
+### What is still missing
+
+| | |
+|---|---|
+| **Saving and loading** | `GetOpenFileNameW`/`GetSaveFileNameW` return FALSE, which the port reads as a cancelled dialog. There is no file dialog and nowhere to put a file. This is the biggest hole left: a tower cannot be kept. |
+| Sound heard | Plays, unheard by anyone so far. |
+| `original_ui.cpp`'s reader | Still unexercised on some paths; the ones startup takes are fine. |
 
 ## Setting up on another machine
 
 ```sh
 tools/fetch_upstream.sh upstream          # the pinned fork
+tools/build_assets.sh /path/to/SIMTOWER.EXE upstream
 emcmake cmake -S . -B build -G Ninja -DUPSTREAM=$PWD/upstream
-cmake --build build --parallel 3          # docs/simtower.html
-cp docs/simtower.html docs/index.html
+cmake --build build --target simtower_game --parallel 4
+cp docs/simtower_game.html docs/index.html
 ```
+
+`tools/build_assets.sh` is not optional: it writes
+`upstream/port/generated/original_resources.generated.hpp`, without which
+nothing configures. It needs Python and the upstream tools.
 
 You need your own `SIMTOWER.EXE` from the 16-bit Windows 3.1 release —
 6,566,400 bytes, sha256 starting `2825a3c53f77945c` for the copy used so far.
 `SIMTOWER.EX_` off the install disc is KWAJ-compressed and is rejected with a
 message saying so; run the installer and use what it writes.
 
-Checking the renderer without a browser, which is the fastest loop by a long way:
+On the machine this was built on, the toolchain is not on `PATH`; `env.sh` (not
+committed) supplies it:
 
 ```sh
-cmake --build build --target simtower_node --parallel 3
-node tools/node_harness.js build/node/simtower_node.js frame.png /path/to/SIMTOWER.EXE
+export EMSDK=/c/prog/emsdk/emsdk
+export EM_CONFIG=$EMSDK/.emscripten
+export PATH="$EMSDK/upstream/emscripten:$EMSDK/node/22.16.0_64bit/bin:$EMSDK/python/3.13.3_64bit:/c/prog/tools:$PATH"
 ```
 
-## The game's own host: building, linking, and running as far as the UI resources
+Sourcing it puts emsdk's Python first, which has no Pillow — run image
+inspection in a shell that has *not* sourced it.
 
-`native_main.cpp` compiles and links, and `WinMain` runs. It gets through
-startup capability checks, the resource pack, the PART table, the three YEN
-tables and all six TABL/TABM rating tables, and stops in
-`original_ui.cpp`'s reader with "Truncated original Win16 UI resource" - which is
-that reader running off the end of a resource, most likely an ICON or CURSOR
-reached through a GROUP directory whose ids are being read wrongly. That is the
-next thing to chase; `tools/node_harness.js` shows it in one run.
+## The two ways to check it
 
-Three things made this possible and are worth not undoing:
-
-* **Asyncify.** The port's dispatcher is `PeekMessage`, and simulate when there
-  is nothing to dispatch. `shim/src/win32_window.cpp` makes `PeekMessage` the
-  yield point: it publishes the frame and hands the thread back, rate-limited to
-  once every 16 ms so there is still time to simulate in. Upstream is explicit
-  that the recovered dispatcher stays unchanged, and this needs no patch against
-  it.
-* **WM_PAINT is generated, not queued** - the same as Windows - so the port's own
-  `DispatchMessage` delivers it instead of the shim painting behind its back.
-* **The resource pack is synthesised in memory** from the player's executable,
-  laid out exactly as `build_resource_pack.py` would. 499 of 499 descriptors,
-  6,089,216 bytes, matching the Python tool byte for byte. Nothing copyrighted is
-  committed or served, and `OriginalResources::from_current_module` works
-  unchanged.
-
-### The private resource type names
-
-The one real piece of reverse engineering so far, and the reason the game got
-past its first table. The port looks resources up by four-character type names -
-`find("PART", 1000)`, `find("WAVE", id)` - while the generated table calls those
-types `TYPE_32513` upwards, so every one of those lookups came back empty.
-
-Neither side is wrong: in a New Executable a type id with the high bit set is an
-integer, and SimTower's private types genuinely are 0xFF01..0xFF0B. The names
-live in the original's own source and the port carries them; the public tools
-have no mapping between the two. `tools/name_private_types.py` is that mapping,
-applied to the generated header by `tools/build_assets.sh`, and
-`shim/src/win32_ne.cpp` carries the same table for building the pack - **the two
-have to agree or the pack comes out empty.**
-
-It was derived from the data, and three entries were wrong when they were
-derived from id ranges instead. ALRT was pinned by reading exactly as
-`parse_original_alert` expects, TABL and TABM by which types parse as big-endian
-word tables at the ids the port asks for, WAVE by every entry beginning
-"RIFF....WAVE". Do not adjust an entry without that kind of evidence.
-
-## Next after that
-
-`upstream/port/src/native_main.cpp` (10,071 lines) is the port's Win32 host —
-`WinMain`, the window procedure, the dispatcher. Getting it to build is what
-turns this from a resource viewer into the game.
-
-The harvest loop below is what got the core, and then the host, from thousands
-of errors to zero. Keep using it:
+**Without a browser**, which is the fast loop:
 
 ```sh
-for f in upstream/port/src/native_main.cpp; do
-  em++ -std=c++20 -fsyntax-only -ferror-limit=0 -DUNICODE -D_UNICODE \
-       -DWIN32_LEAN_AND_MEAN -DNOMINMAX -Ishim/include \
-       -Iupstream/port/src -Iupstream/port/generated "$f" 2>&1
-done | grep -oE "(unknown type name|use of undeclared identifier|no member named) '[A-Za-z_0-9]+'" \
-     | sed "s/.*'\(.*\)'/\1/" | sort -u
+cmake --build build --target simtower_game_node --parallel 4
+node tools/node_harness.js build/node/simtower_game_node.js frame.png \
+     /path/to/SIMTOWER.EXE 8000 click:400,264 wait:4000 dump shot:after.png
 ```
 
-The names outstanding as of this handoff: `AdjustWindowRectEx` `AnimatePalette`
-`BITSPIXEL` `ClipCursor` `DT_END_ELLIPSIS` `DT_NOPREFIX` `EnumChildWindows`
-`FILE_ATTRIBUTE_DIRECTORY` `FreeLibrary` `GetFileAttributesW`
-`GetModuleFileNameA/W` `GetProcAddress` `GetProfileStringA` `GetWindowsDirectoryW`
-`HELP_CONTENTS` `IDC_SIZENS` `INVALID_FILE_ATTRIBUTES` `LoadLibraryW`
-`MEMORYSTATUSEX` `MulDiv` `OFN_ENABLEHOOK` `RASTERCAPS` `RASTERIZER_STATUS`
-`SM_CXDLGFRAME` `SM_CYDLGFRAME` `SM_SWAPBUTTON` `UpdateColors` `WAVEOUTCAPSW`
-`WA_INACTIVE` `WM_APP` `WM_NCDESTROY` `lstrcmpiW`, plus five
-`GetPrivateProfileIntW` calls that pass a `wchar_t[128]` where a `const char *`
-is expected — check whether those want the A form.
+Actions are `wait:<ms> click:<x>,<y> move:<x>,<y> drag:<x1>,<y1>,<x2>,<y2>
+dbl:<x>,<y> key:<name> shot:<file> dump`. `dump` prints the window tree —
+class, id, rectangle, style, visibility — which is how most of the bugs below
+were found, and far faster than guessing from a picture.
 
-After it compiles, the pieces still missing to actually run it:
+Input goes in through `simtowerInjectMouse`/`simtowerInjectKey`, which call the
+very handlers the browser's own listeners call. A second input path would be a
+second thing to get wrong.
 
-1. **The dispatcher's own loop.** It polls with `PeekMessage`. Under Emscripten a
-   loop inside `WinMain` never yields, so either drive it from
-   `emscripten_set_main_loop` or build with Asyncify. Decide this deliberately;
-   it is the difference between a game and a locked tab.
-2. **A dialog manager.** 51 dialogs arrive as `DLGTEMPLATE`s in memory via
-   `DialogBoxIndirectParamW`, using only the standard control classes.
-   `shim/src/win32_menu.cpp` currently answers their API without drawing them,
-   and `MessageBox` reports to stderr and returns the default button.
-3. **`waveOut`.** Declared in `shim/include/mmsystem.h`, not implemented.
+**With a browser**, which is what the page actually is:
+
+```sh
+node tools/browser_check.js docs/index.html /path/to/SIMTOWER.EXE out.png \
+     wait:6000 click:400,264 wait:5000
+```
+
+It serves `docs/` over HTTP, drives headless Edge over the DevTools protocol,
+hands the page's own file input a real executable, clicks with real mouse
+events and screenshots. **Chrome will not work on a managed machine**: this one
+answers "DevTools remote debugging is disallowed by the system admin", so Edge
+is tried first. `SIMTOWER_BROWSER` overrides.
+
+The two disagree, and the disagreement is real: frame timing differs, and a bug
+that only showed in the browser (the tool palette missing) was a genuine one.
 
 ## Traps already paid for
 
-* **GitHub Pages defaults to serving the repository root.** It then runs Jekyll
+### The shim's own model
+
+* **A child window's position is its parent's, not the screen's.** Converted on
+  creation and on every move; a window that moves takes its children with it.
+* **There is no clipping between windows.** One surface, painted in z-order, so
+  a window repainting itself paints over anything standing on top of it.
+  `invalidate` queues everything above that overlaps, and **`ReleaseDC` does the
+  same** — the port draws a great deal straight through a `GetDC` without
+  waiting for `WM_PAINT`.
+* **Never publish a half-drawn frame.** The map window is redrawn directly on
+  every simulation tick, covering the tool palette, which repaints one message
+  later. Publishing in between shows a hole. `publishAndYield` waits for the
+  pending paints, with a 100 ms deadline so a window that never paints cannot
+  stop the picture.
+* **`BeginPaint` erases the update rectangle, not the whole client.** The port
+  repaints only what it was asked to; erasing everything left the rest blank —
+  half the tool palette went grey when one button was pressed.
+* **The frame is not a window.** Clicks on the caption, the menu bar and the
+  scroll bars are answered before the window sees them: the port reads
+  `WM_LBUTTONDOWN` as an attempt to build, so a click on the File menu built
+  nothing at a negative y and said "Cannot place item there".
+* **The menu popup is an overlay.** The frame is drawn before `WM_PAINT`, so
+  anything drawn with it is painted over by the window's own client.
+* **`GWL_USERDATA` is -21**, so it is not an offset into the window's extra
+  bytes and needs its own case. Dropping it left the command selector without
+  its context: it answered nothing and never closed.
+* **`TA_UPDATECP` means `TextOut` ignores the position it is given.** The port
+  sets it on the info bar, the palettes and the dialogs, then draws every
+  string as `TextOut(dc, 0, 0, ...)` after a `MoveToEx`. Reading the pen only
+  after drawing put the funds, the population and the date in the corner.
+* **`GetDesktopWindow` has to be a real window.** The port sizes the splash and
+  centres every dialog against `GetWindowRect(GetDesktopWindow())`; returning
+  null measured a screen of zero and put the startup chooser at (-130,-59).
+* **`HGDIOBJ` is `void *` in the real SDK**, not a `DECLARE_HANDLE`, which is
+  why Windows code writes `DeleteObject(hBrush)` with no cast. `HCURSOR` is a
+  typedef of `HICON`, for the same reason.
+* **`Sleep` does nothing and `GetMessage` never blocks.** One thread belongs to
+  the browser; spinning on it freezes the tab and the reload button with it.
+
+### The game's own expectations
+
+* **The control scope was counted, not guessed.** Across the 51 dialogs: 77
+  buttons, every one a plain or default pushbutton; 56 statics, all text; 6
+  drop-down lists; 2 list boxes; 2 single-line edits; one vertical scroll bar.
+  No check boxes, radio buttons, group boxes or owner-draw anywhere.
+* **The port opens one wave device per channel**, and it has two. A shim with a
+  single device could only ever play one sound.
+* **A wave header must come back when its sound ends**, not when it is
+  accepted: the port resets and closes the device on seeing `WHDR_DONE`.
+* **`GetAsyncKeyState` is asked whether the mouse button is still down.** The
+  grouped command selector only opens while it is, and a drag cannot be told
+  from a click without it.
+* **SimTower requires four raster capabilities.** `RC_STRETCHBLT` missing from
+  `GetDeviceCaps` is what made it warn about the display driver at startup.
+
+### The private resource type names
+
+The port looks resources up by four-character type names — `find("PART", 1000)`
+— while a New Executable stores a private type id with the high bit set, and
+the public tools call those `TYPE_32513` upwards. SimTower carries its own
+Win16 resource-name table (type 15, one entry) holding all eleven private type
+names and the five named resources. `tools/name_from_nametable.py` reads it and
+fills both into the generated header, so the mapping is read rather than
+inferred. `shim/src/win32_ne.cpp` carries the same table for building the pack
+— **the two have to agree or the pack comes out empty.**
+
+### Build and deployment
+
+* **The shell is not a source of any target.** `web/shell.html` is baked in at
+  link time, so nothing rebuilt when it changed and the page kept its old text
+  while the build reported no work to do. It is a `LINK_DEPENDS` now.
+* **GitHub Pages defaults to serving the repository root**, then runs Jekyll
   over it and serves a rendered README, which looks exactly like a page whose
   wasm has gone missing. `gh api -X PUT repos/<owner>/<repo>/pages -f
-  "source[branch]=main" -f "source[path]=/docs"` - a PUT, not a POST, and check
-  the reply instead of discarding it, which is how this went unnoticed.
+  "source[branch]=main" -f "source[path]=/docs"` — a PUT, not a POST, and check
+  the reply instead of discarding it.
 * **This emscripten's `SINGLE_FILE` embeds the wasm as a raw byte string** in
   `binaryDecode('...')`, not as base64. Searching the page for `base64` finds
-  nothing and suggests the wasm is absent; look for the ` asm` magic instead.
-
+  nothing and suggests the wasm is absent; look for the ` asm` magic instead.
 * **`upstream/` in the working tree is a copy, not a symlink.** `ln -s` does not
   make one on Windows, so there are two trees and the build uses whichever
-  `-DUPSTREAM` named at configure time. A rename applied to the wrong one looks
-  like a build that ignores your change. Check `readlink upstream` before
-  believing "ninja: no work to do".
-
-* **`HGDIOBJ` is `void *` in the real SDK**, not a `DECLARE_HANDLE`. That is why
-  Windows code writes `DeleteObject(hBrush)` with no cast, and it accounted for
-  eleven errors on its own. `HCURSOR` is a typedef of `HICON`, for the same
-  reason.
+  `-DUPSTREAM` named at configure time.
 * **`EM_JS`, never `EM_ASM`,** for anything with a comma in it — a comma splits
   the macro argument, and `createImageData(w, h)` has one.
 * **Key events must be listened for on the document.** A canvas cannot take
   focus without a `tabindex`, and `preventDefault` on mousedown stops a click
-  from focusing it even then. The OpenSkyscraper port lost a session to this.
-* **`Sleep` does nothing and `GetMessage` never blocks.** One thread belongs to
-  the browser; spinning on it freezes the tab and the reload button with it.
+  from focusing it even then.
 * **The canvas element's box must equal the backbuffer size.** Pointer
   coordinates come from the element rect, so any other ratio misplaces every
   click as well as resampling the picture.
-* **A DIB's source y is measured from its bottom.** Getting this wrong flips the
-  picture in a way that is easy to miss on symmetrical art.
+* **A DIB's source y is measured from its bottom.** Getting this wrong flips
+  the picture in a way that is easy to miss on symmetrical art.
 * **The font is baked, and it must be one-bit rasterised**, not an antialiased
   image thresholded afterwards. At nine pixels thresholding loses the stem of a
-  `1` and the bar of a `$`. Regenerate with `tools/make_font.py`; proof-read by
-  drawing the table offline, not by looking at a browser.
-* **`build_resource_pack.py` wants the raw extraction as its asset directory,**
-  not the catalogued one, because the catalog names resources by raw filename.
-  Only relevant if you go back to packs, which you should not.
+  `1` and the bar of a `$`. Regenerate with `tools/make_font.py`.
 * **No `globalThis.window` stub in the node harness** — emscripten decides it is
   in a browser from that alone and refuses a node-only build. Its `document`
   stub also needs `querySelector`, and the harness must `process.exit`
   explicitly or the main loop keeps the event loop alive and nothing flushes.
+
+## Next
+
+1. **Saving and loading a tower.** The port calls `GetSaveFileNameW` and then
+   ordinary file writes. A browser has no file system worth the name, so this
+   needs a decision: IDBFS behind the same paths, a download for save and the
+   existing file input for load, or a name list in `localStorage`. Whatever it
+   is, the port's own code should not have to know.
+2. **Hear the sound.** It plays; nobody has listened.
+3. **The rest of the dialogs.** 51 templates, and only a few have been opened.
+   The controls are all there; what has not been checked is each dialog.
 
 ## File map
 
 | | |
 |---|---|
 | `shim/include/` | `windows.h`, `mmsystem.h`, `commdlg.h` — declarations only, driven by the compiler |
-| `shim/src/win32_gdi.cpp` | DCs, objects, drawing, DIB blitting, palettes |
-| `shim/src/win32_font.cpp` | text from the baked table |
+| `shim/src/win32_gdi.cpp` | DCs, objects, drawing, DIB blitting, palettes, DrawText |
+| `shim/src/win32_font.cpp` | text from the baked table, and the text alignments |
 | `shim/src/win32_font_data.h` | generated — do not edit, see `tools/make_font.py` |
-| `shim/src/win32_window.cpp` | windows, messages, painting, the Windows 3.1 frame |
-| `shim/src/win32_menu.cpp` | menus, and the dialog API without a dialog manager |
+| `shim/src/win32_window.cpp` | windows, messages, painting, z-order, the frame, scroll bars |
+| `shim/src/win32_control.cpp` | BUTTON, STATIC, EDIT, LISTBOX, COMBOBOX, SCROLLBAR, and dialog navigation |
+| `shim/src/win32_dialog.cpp` | dialog templates, the modal loop, MessageBox |
+| `shim/src/win32_menu.cpp` | menus and accelerators |
+| `shim/src/win32_audio.cpp` | waveOut over Web Audio |
 | `shim/src/win32_ne.cpp` | the executable's resource table, parsed in the browser |
 | `shim/src/win32_resource.cpp` | the Win32 resource API over that |
-| `shim/src/win32_host.cpp` | canvas, input, presentation |
+| `shim/src/win32_host.cpp` | canvas, input, presentation, and the harness's way in |
 | `shim/src/win32_misc.cpp` | strings, rectangles, time, settings |
-| `demo/main.cpp` | the resource viewer that proves the pipeline; not the game |
-| `tools/node_harness.js` | run the same wasm on the command line, dump a PNG |
+| `demo/main.cpp` | the resource viewer that proved the pipeline; not the game |
+| `game/entry.cpp` | the game's `main`: wait for the executable, then `WinMain` |
+| `tools/node_harness.js` | run the same wasm on the command line, script it, dump a PNG |
+| `tools/browser_check.js` | drive the published page in headless Edge |
