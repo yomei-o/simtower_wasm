@@ -75,11 +75,22 @@ EM_JS(int, jsWaveStart, (uintptr_t data, int bytes, int channels, int rate,
         }
         var id = audio.next++;
         audio.playing[id] = source;
+        // Counted so a headless check can say whether anything was ever
+        // actually played, which a screenshot cannot.
+        audio.started = (audio.started || 0) + 1;
+        audio.lastFrames = frames;
+        audio.lastRate = rate;
         source.onended = function() { delete audio.playing[id]; };
         return id;
     } catch (e) {
         return 0;
     }
+});
+
+// Counted before anything can go wrong, so a headless check can tell a sound
+// the game never asked for from one this code failed to play.
+EM_JS(void, jsWaveSubmitted, (), {
+    Module.simtowerWaveWrites = (Module.simtowerWaveWrites || 0) + 1;
 });
 
 EM_JS(void, jsWaveStop, (int id), {
@@ -234,6 +245,7 @@ extern "C" MMRESULT waveOutWrite(HWAVEOUT out, LPWAVEHDR header, UINT) {
     if (!device) return MMSYSERR_INVALHANDLE;
     if (!header || !header->lpData) return MMSYSERR_ERROR;
 
+    jsWaveSubmitted();
     const DWORD loops = (header->dwFlags & WHDR_BEGINLOOP) ? header->dwLoops : 1;
     device->header = header;
     device->endsAt = hostNow() +
