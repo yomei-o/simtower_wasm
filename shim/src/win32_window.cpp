@@ -9,6 +9,7 @@
 #include <emscripten.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 namespace shim {
@@ -1089,9 +1090,17 @@ static bool anyPaintPending() {
     return false;
 }
 
+// Counted rather than guessed at: a frame published while paints are still
+// pending is a torn one, and how often that happens is the difference between
+// a picture that flickers and one that does not.
+unsigned g_framesPublished = 0;
+unsigned g_framesTorn = 0;
+unsigned g_paintsDrawn = 0;
+
 static void publishAndYield() {
 #ifdef __EMSCRIPTEN__
     static double lastPublish = 0;
+    static double lastYield = 0;
     const double now = hostNow();
     if (now - lastPublish < 16.0) return;
     // Never publish a half-drawn frame.  The port redraws the map window
@@ -1100,11 +1109,23 @@ static void publishAndYield() {
     // published in between has a hole where the palette was.  Yield anyway, so
     // the tab stays alive, and give up waiting after a tenth of a second in case
     // something never paints at all.
-    if (anyPaintPending() && now - lastPublish < 100.0) {
-        emscripten_sleep(0);
-        return;
+    if (anyPaintPending()) {
+        if (now - lastPublish < 1000.0) {
+            // The thread still goes back now and then, or the tab stops
+            // answering while a frame is being finished - but not on every
+            // poll, because each yield is a round trip through the browser and
+            // the port polls far faster than it paints.
+            if (now - lastYield >= 8.0) {
+                lastYield = now;
+                emscripten_sleep(0);
+            }
+            return;
+        }
+        g_framesTorn++;
     }
     lastPublish = now;
+    lastYield = now;
+    g_framesPublished++;
     presentScreen();
     emscripten_sleep(0);
 #endif
@@ -1145,6 +1166,7 @@ extern "C" BOOL PeekMessageW(LPMSG msg, HWND filter, UINT first, UINT last,
             if (!found || !found->visible || !found->needsPaint) continue;
             if (filter && (HWND)handle != filter) continue;
             Window & w = *found;
+            g_paintsDrawn++;
             drawFrame(w);
             msg->hwnd = (HWND)handle;
             msg->message = WM_PAINT;

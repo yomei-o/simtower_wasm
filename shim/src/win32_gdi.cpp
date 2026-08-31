@@ -59,6 +59,29 @@ HGDIOBJ createObject(GdiObject o) {
 
 /* ------------------------------------------------------------- primitives */
 
+// The part of a rectangle that can actually be written, in the DC's own
+// coordinates, with the clip and the surface bounds applied once.  Doing this
+// per pixel - a call, two bounds tests and a switch each time - is what made
+// the world blit slow enough for the picture to fall behind and tear.
+bool clipSpan(const DeviceContext & d, RECT r, RECT & out) {
+    if (!d.target) return false;
+    if (d.clip.right > d.clip.left && d.clip.bottom > d.clip.top) {
+        if (r.left < d.clip.left) r.left = d.clip.left;
+        if (r.top < d.clip.top) r.top = d.clip.top;
+        if (r.right > d.clip.right) r.right = d.clip.right;
+        if (r.bottom > d.clip.bottom) r.bottom = d.clip.bottom;
+    }
+    // The surface's own bounds, which sit at the DC's origin.
+    if (r.left < -d.origin.x) r.left = -d.origin.x;
+    if (r.top < -d.origin.y) r.top = -d.origin.y;
+    if (r.right > d.target->width - d.origin.x)
+        r.right = d.target->width - d.origin.x;
+    if (r.bottom > d.target->height - d.origin.y)
+        r.bottom = d.target->height - d.origin.y;
+    out = r;
+    return r.right > r.left && r.bottom > r.top;
+}
+
 void blendPixel(DeviceContext & d, int x, int y, uint32_t colour) {
     if (!d.target) return;
     const int tx = x + d.origin.x;
@@ -76,10 +99,19 @@ void blendPixel(DeviceContext & d, int x, int y, uint32_t colour) {
 }
 
 void fillRect(DeviceContext & d, RECT r, uint32_t colour) {
-    if (!d.target) return;
-    for (int y = r.top; y < r.bottom; y++)
-        for (int x = r.left; x < r.right; x++)
-            blendPixel(d, x, y, colour);
+    RECT span;
+    if (!clipSpan(d, r, span)) return;
+    if (d.rop2 != R2_COPYPEN) {
+        for (int y = span.top; y < span.bottom; y++)
+            for (int x = span.left; x < span.right; x++)
+                blendPixel(d, x, y, colour);
+        return;
+    }
+    const int width = span.right - span.left;
+    for (int y = span.top; y < span.bottom; y++) {
+        uint32_t * out = d.target->row(y + d.origin.y) + span.left + d.origin.x;
+        for (int i = 0; i < width; i++) out[i] = colour;
+    }
 }
 
 void drawLine(DeviceContext & d, int x0, int y0, int x1, int y1, uint32_t colour) {
@@ -633,6 +665,12 @@ struct DibReader {
         return true;
     }
 
+    // The row a scanline lives on, so a blit can walk it rather than work it
+    // out again for every pixel.
+    const BYTE * rowAt(int y) const {
+        return bits + stride * (topDown ? y : (height - 1 - y));
+    }
+
     uint32_t at(int x, int y) const {
         if (x < 0 || y < 0 || x >= width || y >= height) return 0xff000000u;
         const BYTE * row = bits + stride * (topDown ? y : (height - 1 - y));
@@ -672,10 +710,60 @@ extern "C" int SetDIBitsToDevice(HDC hdc, int x, int y, DWORD w, DWORD h,
     // The source y that Windows means here is measured from the bottom of the
     // DIB, so it is flipped into the reader's top-down space.
     const int srcTop = dib.height - (int)sy - (int)h;
-    for (DWORD row = 0; row < h; row++)
-        for (DWORD col = 0; col < w; col++)
-            blendPixel(*d, x + (int)col, y + (int)row,
-                       dib.at(sx + (int)col, srcTop + (int)row));
+
+    RECT span;
+    if (!clipSpan(*d, RECT{x, y, x + (int)w, y + (int)h}, span)) return (int)h;
+
+    if (d->rop2 != R2_COPYPEN) {
+        for (int ty = span.top; ty < span.bottom; ty++)
+            for (int tx = span.left; tx < span.right; tx++)
+                blendPixel(*d, tx, ty,
+                           dib.at(sx + tx - x, srcTop + ty - y));
+        return (int)h;
+    }
+
+    // The whole world arrives through here every frame - 572x483 of it - so
+    // the inner loop does one thing per pixel and everything else is hoisted.
+    for (int ty = span.top; ty < span.bottom; ty++) {
+        const int srcY = srcTop + ty - y;
+        uint32_t * out = d->target->row(ty + d->origin.y)
+                       + span.left + d->origin.x;
+        const int count = span.right - span.left;
+        const int srcX = sx + span.left - x;
+        if (srcY < 0 || srcY >= dib.height) {
+            for (int i = 0; i < count; i++) out[i] = 0xff000000u;
+            continue;
+        }
+        const BYTE * row = dib.rowAt(srcY);
+        switch (dib.bitCount) {
+            case 32: {
+                // 0x00RRGGBB in memory as B,G,R,0; the surface wants R,G,B,A.
+                const BYTE * p = row + (size_t)srcX * 4;
+                for (int i = 0; i < count; i++, p += 4)
+                    out[i] = 0xff000000u | ((uint32_t)p[0] << 16) |
+                             ((uint32_t)p[1] << 8) | p[2];
+                break;
+            }
+            case 8: {
+                const BYTE * p = row + srcX;
+                for (int i = 0; i < count; i++) {
+                    const RGBQUAD & c = dib.colours[p[i]];
+                    out[i] = pack(c.rgbRed, c.rgbGreen, c.rgbBlue);
+                }
+                break;
+            }
+            case 24: {
+                const BYTE * p = row + (size_t)srcX * 3;
+                for (int i = 0; i < count; i++, p += 3)
+                    out[i] = pack(p[2], p[1], p[0]);
+                break;
+            }
+            default:
+                for (int i = 0; i < count; i++)
+                    out[i] = dib.at(srcX + i, srcY);
+                break;
+        }
+    }
     return (int)h;
 }
 

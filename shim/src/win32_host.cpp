@@ -290,17 +290,23 @@ void simtowerInjectKey(int type, int vk, int character) {
 extern "C" EMSCRIPTEN_KEEPALIVE
 void simtowerDumpWindows(void) {
     State & s = state();
+    printf("frames: %u published, %u of them torn; %u paints\n",
+           g_framesPublished, g_framesTorn, g_paintsDrawn);
     printf("windows: %d  active=%p focus=%p capture=%p\n",
            (int)s.windows.size(), (void *)s.active, (void *)s.focus,
            (void *)s.capture);
-    for (auto & entry : s.windows) {
-        Window & w = entry.second;
-        if (w.destroyed) continue;
+    // In z-order, bottom first, which is the order they are painted in.
+    for (uintptr_t handle : s.zorder) {
+        Window * found = window((HWND)handle);
+        if (!found) continue;
+        Window & w = *found;
+        auto entryFirst = handle;
         printf("  %p %-10s cls=%-12s id=%-5d %s%s (%d,%d)-(%d,%d) style=%08x \"%s\"\n",
-               (void *)entry.first,
+               (void *)entryFirst,
                w.isDialog ? "[dialog]" : (w.controlClass.empty() ? "" : "[control]"),
                toUtf8(w.className.c_str()).c_str(), w.id,
-               w.visible ? "vis" : "hid", w.enabled ? "" : "/dis",
+               w.visible ? "vis" : "hid",
+               w.needsPaint ? "/dirty" : (w.enabled ? "" : "/dis"),
                (int)w.rect.left, (int)w.rect.top,
                (int)w.rect.right, (int)w.rect.bottom,
                (unsigned)w.style,

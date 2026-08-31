@@ -261,6 +261,7 @@ HGDIOBJ createObject(GdiObject o);
 
 /* Drawing, shared between the GDI entry points. */
 void  fillRect(DeviceContext & d, RECT r, uint32_t colour);
+bool  clipSpan(const DeviceContext & d, RECT r, RECT & out);
 void  blendPixel(DeviceContext & d, int x, int y, uint32_t colour);
 void  drawLine(DeviceContext & d, int x0, int y0, int x1, int y1, uint32_t colour);
 SIZE  measureText(DeviceContext & d, const char * utf8, int count);
@@ -278,6 +279,11 @@ void  invalidate(Window & w, const RECT * r, bool erase);
 /* What a vanished window uncovered: the ground is repainted and everything
    still standing that overlaps it is marked for redraw. */
 void  invalidateArea(const RECT & screenArea);
+/* How the picture is getting out: published frames, of which torn ones were
+   published with paints still outstanding, and generated WM_PAINTs. */
+extern unsigned g_framesPublished;
+extern unsigned g_framesTorn;
+extern unsigned g_paintsDrawn;
 void  paintPending();
 void  presentScreen();
 RECT  clientRect(const Window & w);
