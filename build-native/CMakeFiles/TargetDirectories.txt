@@ -1,0 +1,4 @@
+C:/prog/claude/simtower_wasm/build-native/CMakeFiles/simtower_port_core.dir
+C:/prog/claude/simtower_wasm/build-native/CMakeFiles/simtower.dir
+C:/prog/claude/simtower_wasm/build-native/CMakeFiles/edit_cache.dir
+C:/prog/claude/simtower_wasm/build-native/CMakeFiles/rebuild_cache.dir

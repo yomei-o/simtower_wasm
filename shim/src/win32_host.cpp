@@ -285,6 +285,23 @@ void simtowerInjectKey(int type, int vk, int character) {
     onKey(type, &e, nullptr);
 }
 
+// The resource pack this build synthesised out of the player's executable.
+// The native build reads the pack the Python tool wrote, embedded in its own
+// PE; this one assembles the same thing in the browser.  If the two differ the
+// port samples the wrong pixels, and the only way to know is to compare them.
+extern "C" EMSCRIPTEN_KEEPALIVE
+uintptr_t simtowerPackData(void) {
+    size_t size = 0;
+    return (uintptr_t)resourcePack(&size);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+int simtowerPackSize(void) {
+    size_t size = 0;
+    resourcePack(&size);
+    return (int)size;
+}
+
 // The window tree, for a harness that has to say what it is looking at rather
 // than guess from a picture.
 extern "C" EMSCRIPTEN_KEEPALIVE

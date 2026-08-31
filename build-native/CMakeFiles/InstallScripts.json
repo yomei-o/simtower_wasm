@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/prog/claude/simtower_wasm/build-native/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -212,6 +212,19 @@ function writePng(file, width, height, rgba) {
       case 'dump':
         Module._simtowerDumpWindows();
         break;
+      case 'pack': {
+        // The pack as this build assembled it, for comparing against the one
+        // the Python tool writes and the native build embeds.
+        const at = Module._simtowerPackData();
+        const size = Module._simtowerPackSize();
+        if (!at || size <= 0) {
+          console.log('no pack');
+          break;
+        }
+        fs.writeFileSync(rest, Buffer.from(Module.HEAPU8.buffer, at, size));
+        console.log('wrote', rest, size, 'bytes');
+        break;
+      }
       default:
         console.log('unknown action', action);
         process.exit(3);
