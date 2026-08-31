@@ -812,6 +812,8 @@ static HDC makeWindowDc(Window & w) {
     DeviceContext d{};
     d.target = std::shared_ptr<Surface>(&state().screen, [](Surface *) {});
     d.origin = clientOrigin(w);
+    for (auto & entry : state().windows)
+        if (&entry.second == &w) { d.owner = (HWND)entry.first; break; }
     d.pen = GetStockObject(BLACK_PEN);
     d.brush = GetStockObject(WHITE_BRUSH);
     d.font = GetStockObject(SYSTEM_FONT);
@@ -853,8 +855,15 @@ extern "C" HDC GetWindowDC(HWND hwnd) {
 }
 
 extern "C" int ReleaseDC(HWND, HDC hdc) {
-    if (!dc(hdc)) return 0;
+    DeviceContext * d = dc(hdc);
+    if (!d) return 0;
+    // The port draws a good deal without waiting for WM_PAINT - the map window's
+    // focus rectangle, the main view's backing store - and with one surface and
+    // no clipping that covers whatever is standing on top.  Queue those to paint
+    // again, the same as an ordinary invalidation does.
+    HWND owner = d->owner;
     state().dcs.erase((uintptr_t)hdc);
+    if (Window * w = window(owner)) invalidateAbove(*w);
     return 1;
 }
 
@@ -1086,6 +1095,7 @@ extern "C" BOOL PeekMessageW(LPMSG msg, HWND filter, UINT first, UINT last,
                              UINT remove) {
     if (!msg) return FALSE;
     fireTimers();
+    audioTick();
     publishAndYield();
 
     State & s = state();

@@ -328,6 +328,10 @@ const BYTE * resourceAt(size_t index, size_t * size);
 const char * resourceType(size_t index);
 int          resourceId(size_t index);
 
+/* Sound, in win32_audio.cpp.  Called from the message pump: a wave header is
+   only handed back once its sound has actually finished. */
+void  audioTick();
+
 /* The host, in win32_host.cpp. */
 void  hostInit();
 void  hostPresent(const Surface & s);
