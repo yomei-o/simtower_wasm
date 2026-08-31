@@ -21,6 +21,11 @@
   #gate code { color: #cfcfd6; }
   #gate input { margin-left: 10px; }
   #status { padding: 8px 16px; font: 12px ui-monospace, monospace; color: #8a8a92; }
+  #log {
+    padding: 4px 16px 12px; font: 12px ui-monospace, monospace; color: #7a7a82;
+    white-space: pre-wrap;
+  }
+  #log .bad { color: #ff8f7a; }
   #hud {
     position: fixed; right: 8px; bottom: 6px; font: 11px ui-monospace, monospace;
     color: #6a6a72; pointer-events: none;
@@ -35,12 +40,26 @@
     <input id="file" type="file" accept=".exe,.EXE">
   </div>
   <div id="status">starting...</div>
-  <div id="stage"><canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas></div>
+  <div id="stage"><canvas id="canvas" width="800" height="600"
+          oncontextmenu="event.preventDefault()"></canvas></div>
+  <div id="log"></div>
   <div id="hud"></div>
 
 <script>
   var statusEl = document.getElementById('status');
+  var logEl = document.getElementById('log');
   var canvasEl = document.getElementById('canvas');
+
+  // Kept rather than overwritten, and kept separate from the status line: an
+  // error that replaces the status reads as a status, which is how a failure
+  // came to look like an ordinary message.
+  function log(text, isError) {
+    var line = document.createElement('div');
+    line.textContent = text;
+    if (isError) line.className = 'bad';
+    logEl.appendChild(line);
+    while (logEl.childNodes.length > 12) logEl.removeChild(logEl.firstChild);
+  }
 
   var Module = {
     canvas: canvasEl,
@@ -48,11 +67,11 @@
     // tabindex, and preventDefault on mousedown stops a click from focusing it
     // even then, so keys aimed at the canvas never arrive.
     print: function (text) {
-      statusEl.textContent = text;
+      log(text, false);
       console.log(text);
     },
     printErr: function (text) {
-      statusEl.textContent = text;
+      log(text, true);
       console.error(text);
     },
     setStatus: function (text) {

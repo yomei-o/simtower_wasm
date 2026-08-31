@@ -41,3 +41,33 @@ target_link_options(simtower PRIVATE
 set_target_properties(simtower PROPERTIES
     SUFFIX ".html"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/docs")
+
+
+# A second build for the command line, so the renderer can be checked without a
+# browser.  tools/node_harness.js gives it a fake canvas and writes what was
+# presented to a PNG - the same discipline as proof-reading the font offline
+# rather than looking at it in a tab.
+add_executable(simtower_node ${SHIM_SOURCES} ${PORT_SOURCES}
+               "${CMAKE_SOURCE_DIR}/demo/main.cpp")
+target_compile_features(simtower_node PRIVATE cxx_std_20)
+target_compile_definitions(simtower_node PRIVATE UNICODE _UNICODE
+                           WIN32_LEAN_AND_MEAN NOMINMAX)
+target_include_directories(simtower_node PRIVATE
+    "${CMAKE_SOURCE_DIR}/shim/include"
+    "${CMAKE_SOURCE_DIR}/shim/src"
+    "${UPSTREAM}/port/src"
+    "${UPSTREAM}/port/generated")
+target_link_options(simtower_node PRIVATE
+    -sENVIRONMENT=node
+    -sMODULARIZE=1
+    -sEXPORT_NAME=createSimTower
+    -sALLOW_MEMORY_GROWTH=1
+    -sINITIAL_MEMORY=134217728
+    -sSTACK_SIZE=8388608
+    -sEXPORTED_RUNTIME_METHODS=['HEAPU8','callMain']
+    -sEXPORTED_FUNCTIONS=['_main','_simtowerLoadExecutable','_malloc','_free']
+    -sINVOKE_RUN=0
+    -sASSERTIONS=1)
+set_target_properties(simtower_node PROPERTIES
+    SUFFIX ".js"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/build/node")
