@@ -38,13 +38,12 @@ Working and verified:
   count the upstream Python tools report, which is the check that reading the NE
   directly agrees with building a pack.
 
-Not yet confirmed: **nobody has seen the browser page work.** The node harness
-proves the renderer; the page itself was last reported as showing text and no
-picture, and two causes for that were fixed and deployed without confirmation —
-a canvas with no size in the markup (invisible, and indistinguishable from a
-failure) and `printErr` overwriting the status line (an error read as a status).
-First thing next session: open <https://yomei-o.github.io/simtower_wasm/>, pick
-`SIMTOWER.EXE`, and read the log area under the canvas.
+* **The browser page works**, confirmed by eye: pick a `SIMTOWER.EXE` at
+  <https://yomei-o.github.io/simtower_wasm/> and the game's bitmaps appear.
+
+What `docs/` holds is the **resource viewer**, not the game. The game target
+(`simtower_game`, with Asyncify) builds and runs but stops in the UI resources,
+so deploying it would only show a failure; swap it in once it gets further.
 
 ## Setting up on another machine
 
@@ -156,6 +155,15 @@ After it compiles, the pieces still missing to actually run it:
 3. **`waveOut`.** Declared in `shim/include/mmsystem.h`, not implemented.
 
 ## Traps already paid for
+
+* **GitHub Pages defaults to serving the repository root.** It then runs Jekyll
+  over it and serves a rendered README, which looks exactly like a page whose
+  wasm has gone missing. `gh api -X PUT repos/<owner>/<repo>/pages -f
+  "source[branch]=main" -f "source[path]=/docs"` - a PUT, not a POST, and check
+  the reply instead of discarding it, which is how this went unnoticed.
+* **This emscripten's `SINGLE_FILE` embeds the wasm as a raw byte string** in
+  `binaryDecode('...')`, not as base64. Searching the page for `base64` finds
+  nothing and suggests the wasm is absent; look for the ` asm` magic instead.
 
 * **`upstream/` in the working tree is a copy, not a symlink.** `ln -s` does not
   make one on Windows, so there are two trees and the build uses whichever
