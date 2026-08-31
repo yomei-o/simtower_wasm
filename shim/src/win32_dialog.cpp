@@ -551,19 +551,6 @@ extern "C" LPWSTR lstrcpyW(LPWSTR dst, LPCWSTR src) {
 
 extern "C" BOOL WinHelpW(HWND, LPCWSTR, UINT, ULONG_PTR) { return FALSE; }
 
-extern "C" BOOL GetOpenFileNameW(LPOPENFILENAMEW ofn) {
-    // There is no file dialog to show.  Refusing is what a cancelled dialog
-    // looks like, which the port already handles.
-    if (ofn && ofn->lpstrFile && ofn->nMaxFile) ofn->lpstrFile[0] = 0;
-    return FALSE;
-}
-
-extern "C" BOOL GetSaveFileNameW(LPOPENFILENAMEW ofn) {
-    return GetOpenFileNameW(ofn);
-}
-
-extern "C" DWORD CommDlgExtendedError(void) { return 0; }
-
 }   // namespace shim
 
 // Declared at global scope in windows.h, next to the narrow-path overloads, so

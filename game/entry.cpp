@@ -58,6 +58,9 @@ int main() {
     while (!g_ready)
         emscripten_sleep(100);
 
+    // Before WinMain, so the first Open sees whatever was saved last time.
+    shim::mountSaves();
+
     printf("starting WinMain\n");
     char commandLine[] = "";
     const int code = WinMain((HINSTANCE)0x1, nullptr, commandLine, SW_SHOW);

@@ -338,6 +338,11 @@ int          resourceId(size_t index);
    only handed back once its sound has actually finished. */
 void  audioTick();
 
+/* Saved towers, in win32_files.cpp: an IndexedDB-backed directory the port
+   writes to with an ordinary ofstream, and a chooser to name a file in it. */
+void  mountSaves();
+void  syncSaves();
+
 /* The host, in win32_host.cpp. */
 void  hostInit();
 void  hostPresent(const Surface & s);

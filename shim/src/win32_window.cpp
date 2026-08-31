@@ -1136,6 +1136,7 @@ extern "C" BOOL PeekMessageW(LPMSG msg, HWND filter, UINT first, UINT last,
     if (!msg) return FALSE;
     fireTimers();
     audioTick();
+    syncSaves();
     publishAndYield();
 
     State & s = state();

@@ -141,6 +141,7 @@ target_link_options(simtower_game_node PRIVATE
     -sEXPORTED_RUNTIME_METHODS=['HEAPU8','callMain']
     -sEXPORTED_FUNCTIONS=['_main','_simtowerLoadExecutable','_malloc','_free']
     -sINVOKE_RUN=0
+    -lidbfs.js
     -sASSERTIONS=1)
 set_target_properties(simtower_game_node PROPERTIES
     SUFFIX ".js"
