@@ -415,10 +415,31 @@ of these so far looked like a different bug from the one it was.
 
 ### Reported, but the game is behaving as written
 
-Worth confirming against the original before "fixing" any of them. All three
-refuse **silently** - the constructor returns a zero status code, so no alert
-is shown and a click simply does nothing, which is what makes them read as
-broken. If the original does show a message here, that is the actual bug.
+Worth confirming against the original before "fixing" any of them. Most do say
+why, in the info bar, out of the game's own STRL/1003 - it is worth reading
+that strip before assuming a click did nothing:
+
+    15 Place Metro station on bottom floor
+    16 Cathedral is available only on 100th floor
+    17 Only one Metro Station allowed
+    19 Only one Cathedral allowed
+    20 Cannot place item there
+    21 Cannot destroy this item
+    33 Cannot destroy items under construction
+
+The express elevator is the exception: its floor check returns a **zero** status
+code, so nothing is said and the click simply does nothing.
+
+One thing here does not add up and is worth settling. The Cathedral message
+says the hundredth floor, which is floor index 109, but `build_original_-
+cathedral` demands index **113** - floor 104 - and builds its five parts at
+109..113 with the main type-36 record on top. The Metro is the same shape: its
+message says the bottom floor, and the check demands index **2** (B8) with the
+type-31 record there and parts below at 1 and 0. Either the click is meant to
+be the top of the stack and both messages describe where the building ends up,
+or both checks are off by the stack height. `apply_original_replacement_-
+demolition` agrees with the port (`first_floor -= 4` for 36, `-= 2` for 31),
+so do not change one without the other.
 
 * **The Metro Station cannot be built** (`build_original_metro_station`). It
   wants floor index **2** - that is B8 - and floor index 0 (B10) must already
@@ -429,6 +450,19 @@ broken. If the original does show a message here, that is the actual bug.
   cells wide, one per tower. Floor index 113 is floor 104, so a tower that
   does not already reach the top cannot even scroll there - the vertical
   scroll range is clamped to what is built.
+* **Some rooms cannot be bulldozed.** Ordinary rooms do demolish - types 7, 3
+  and 12 were placed and removed in the harness - but
+  `original_facility_damage_protected` refuses types **14 (Security), 15
+  (Housekeeping), 24/25/26 (the Lobby and its upper stories), 31/32/33 (the
+  Metro), 36..40 (the Cathedral) and 45**, and the info bar says the game's own
+  *"Cannot destroy this item"* (STRL/1003 entry 21). A facility still under
+  construction - a negative tenant type - gives entry 33, *"Cannot destroy
+  items under construction"*, which is the likeliest thing to hit by accident.
+  The suspect entry is Security and Housekeeping: everything else in that list
+  is structural or one-per-tower. The table carries no address citation, and
+  the same routine serves both the bulldozer and fire damage (the `flags`
+  argument only picks the alert), so if the original let you bulldoze a
+  Housekeeping office, that is where to look.
 * **The large (express) elevator cannot be built.** `build_original_elevator`
   takes command type 42 as the express: internal type 0, capacity 42, six
   cells wide - and above floor ten it is permitted only on the sky-lobby
