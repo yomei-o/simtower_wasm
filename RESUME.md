@@ -177,6 +177,20 @@ that only showed in the browser (the tool palette missing) was a genuine one.
 * **SimTower requires four raster capabilities.** `RC_STRETCHBLT` missing from
   `GetDeviceCaps` is what made it warn about the display driver at startup.
 
+### The one change carried against the port
+
+`tools/fetch_upstream.sh` pins the fork's `floor-edges` branch rather than its
+main line.  The one commit on it fixes `render_original_floor_edges`, whose
+reconstruction of the shared WinG sheet had the fragments' width and height
+swapped and took the standard floor edge from BITMAP/1259 - a bank of hotel
+rooms - instead of BITMAP/1069, the emergency stairs.  The evidence, in case it
+needs revisiting: the fragments are drawn at the floor edge minus 24 and minus
+56, which only makes sense as widths; read that way both come out exactly one
+story tall; BITMAP/1069 is 48 wide, holding the two 24-wide staircases, and
+BITMAP/1001 is 112 wide, holding the two 56-wide canopies; and the port's own
+dimension checks on all five source bitmaps pass, so the ids are not shifted.
+Reverting is one line: pin 9c2685a again.
+
 ### The private resource type names
 
 The port looks resources up by four-character type names — `find("PART", 1000)`

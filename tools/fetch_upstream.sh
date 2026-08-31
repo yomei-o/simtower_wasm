@@ -7,7 +7,10 @@
 # pulls a pinned fork instead and this repository carries only its own work.
 set -e
 REPO=${SIMTOWER_UPSTREAM:-https://github.com/yomei-o/simtower-native-windows-port.git}
-SHA=9c2685ae99fee51a818595decf4d7b9babeb4338
+# Pinned to the fork's floor-edges branch: the recovered floor-edge rectangles
+# had their width and height swapped and took the standard edge from a bank of
+# hotel rooms instead of the emergency stairs.  See that commit for the detail.
+SHA=beef8e90511fd0c0d5834b0def18d7537f77d5ed
 DEST=${1:-upstream}
 
 if [ -d "$DEST/.git" ]; then
