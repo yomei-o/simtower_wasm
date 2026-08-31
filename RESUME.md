@@ -57,6 +57,9 @@ shim answers 256 Win32 entry points.
   0.0-0.3% white at every step, and the only white left in it is the
   construction preview's own outline. Every Windows-menu toggle works, and the
   Finance window and About both draw in full.
+* **60 fps at 800x600**, and the page is 2.0 MB. Both came from setting a build
+  type: nothing ever did, so every build until now was -O0, for a program that
+  composes 276,000 pixels of world in C++ and blits them every frame.
 * **Two and a half minutes of play in a browser**: 36 fps at 800x600, the clock
   hand turning, nothing white, nothing lost.
 
@@ -263,6 +266,9 @@ inferred. `shim/src/win32_ne.cpp` carries the same table for building the pack
 
 ### Build and deployment
 
+* **Set a build type.** CMake passes no optimisation flag without one, so
+  emscripten compiles at -O0 and the software rasteriser runs three times
+  slower for a page three times larger. Release is the default here now.
 * **The shell is not a source of any target.** `web/shell.html` is baked in at
   link time, so nothing rebuilt when it changed and the page kept its old text
   while the build reported no work to do. It is a `LINK_DEPENDS` now.
