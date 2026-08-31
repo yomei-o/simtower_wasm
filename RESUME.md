@@ -46,13 +46,18 @@ browser, headlessly, by `tools/browser_check.js`:
 All 27 game-core translation units plus `native_main.cpp` compile to wasm; the
 shim answers 256 Win32 entry points.
 
+* **Towers save and load.** `win32_files.cpp` draws a chooser out of the same
+  control classes as every other dialog, over an IndexedDB-backed `/saves`, so
+  what was saved is still there after a reload. Verified in a browser across a
+  real reload.
+
 ### What is still missing
 
 | | |
 |---|---|
-| **Saving and loading** | `GetOpenFileNameW`/`GetSaveFileNameW` return FALSE, which the port reads as a cancelled dialog. There is no file dialog and nowhere to put a file. This is the biggest hole left: a tower cannot be kept. |
 | Sound heard | Plays, unheard by anyone so far. |
-| `original_ui.cpp`'s reader | Still unexercised on some paths; the ones startup takes are fine. |
+| The other dialogs | 51 templates; About, Finance and the startup chooser have been opened, the rest have not. |
+| Higher ratings | Everything checked so far is a one-star tower. |
 
 ## Setting up on another machine
 
@@ -85,7 +90,30 @@ export PATH="$EMSDK/upstream/emscripten:$EMSDK/node/22.16.0_64bit/bin:$EMSDK/pyt
 Sourcing it puts emsdk's Python first, which has no Pillow — run image
 inspection in a shell that has *not* sourced it.
 
-## The two ways to check it
+## The three ways to check it
+
+**Natively**, which is the reference. The port builds as an ordinary Windows
+program, and that settles any argument about whether a difference is the shim's
+fault:
+
+```sh
+export PATH=/c/prog/tools/w64devkit/bin:$PATH
+cmake -S upstream/port -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=/c/prog/tools/w64devkit/bin/g++.exe \
+  -DSIMTOWER_WINDRES=/c/prog/tools/w64devkit/bin/windres.exe -DBUILD_TESTING=OFF
+cmake --build build-native --target simtower --parallel 4
+```
+
+It needs an empty `upstream/original/extracted/MAXIS/SIMTOWER/SIMTOWER.HLP` to
+satisfy the resource script, and it uses the same generated header and pack the
+wasm build does — which are byte-identical, so a difference between the two is
+never the data. `C:\prog\claude\drive.ps1` (not committed) starts it,
+focuses it, resizes it, clicks and screenshots. **The desktop here is scaled**:
+a screenshot taken by a DPI-unaware process comes back in logical pixels while
+SetCursorPos and MoveWindow speak physical ones, so it calls SetProcessDPIAware
+first — without that every click lands somewhere else.
+
+
 
 **Without a browser**, which is the fast loop:
 
@@ -176,6 +204,15 @@ that only showed in the browser (the tool palette missing) was a genuine one.
   from a click without it.
 * **SimTower requires four raster capabilities.** `RC_STRETCHBLT` missing from
   `GetDeviceCaps` is what made it warn about the display driver at startup.
+* **The port measures a save's DOS basename from the last backslash.** A POSIX
+  path has none, so `/saves/TOWER.TDT` measures twelve characters and comes back
+  as "That is not a valid filename". It is handed a bare name, and the process
+  `chdir`s into the saves directory.
+* **IDBFS asserts rather than throws where there is no IndexedDB**, and an
+  assert aborts the runtime. Ask `typeof indexedDB` first. And `-lidbfs.js` is
+  per target: with it missing the runtime keeps a stub that answers "IDBFS is no
+  longer included by default" and the mount fails into an ordinary in-memory
+  directory, so everything works until the page is reloaded.
 
 ### The one change carried against the port
 
@@ -267,4 +304,6 @@ inferred. `shim/src/win32_ne.cpp` carries the same table for building the pack
 | `demo/main.cpp` | the resource viewer that proved the pipeline; not the game |
 | `game/entry.cpp` | the game's `main`: wait for the executable, then `WinMain` |
 | `tools/node_harness.js` | run the same wasm on the command line, script it, dump a PNG |
-| `tools/browser_check.js` | drive the published page in headless Edge |
+| `shim/src/win32_files.cpp` | the save chooser, and the IndexedDB-backed directory under it |
+| `tools/browser_check.js` | drive the published page in headless Edge; `js:<expr>` looks inside it |
+| `tools/paint_sweep.py` | build a tower with every tool and measure what came out |
