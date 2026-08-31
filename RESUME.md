@@ -51,13 +51,22 @@ shim answers 256 Win32 entry points.
   what was saved is still there after a reload. Verified in a browser across a
   real reload.
 
+* **Measured, not eyeballed.** `tools/paint_sweep.py` builds a tower with every
+  tool at five columns across three floors and looks at it scrolled up and
+  down; `tools/menu_sweep.py` walks the menus. The world region reports
+  0.0-0.3% white at every step, and the only white left in it is the
+  construction preview's own outline. Every Windows-menu toggle works, and the
+  Finance window and About both draw in full.
+* **Two and a half minutes of play in a browser**: 36 fps at 800x600, the clock
+  hand turning, nothing white, nothing lost.
+
 ### What is still missing
 
 | | |
 |---|---|
-| Sound heard | Plays, unheard by anyone so far. |
-| The other dialogs | 51 templates; About, Finance and the startup chooser have been opened, the rest have not. |
-| Higher ratings | Everything checked so far is a one-star tower. |
+| Sound heard | It plays - submitted 1, started 1, context running, 50,300 frames of WAVE/20000 at startup - but nobody has listened. The game asks for no other sound in a one-star tower. |
+| The other dialogs | 51 templates; the startup chooser, Finance, About, the message boxes and the command selector have been opened. The rest arrive with events during play. |
+| Higher ratings | Everything checked is a one-star tower. `TABL/1001` holds five catalog entries - one group of Lobby/Floor/Stairs and four single facilities - which is exactly what the palette shows. Elevators are in `TABL/1002`, so they need a two-star tower and a population to get there. |
 
 ## Setting up on another machine
 
@@ -147,6 +156,13 @@ is tried first. `SIMTOWER_BROWSER` overrides.
 
 The two disagree, and the disagreement is real: frame timing differs, and a bug
 that only showed in the browser (the tool palette missing) was a genuine one.
+
+**A DevTools connection left silent stops answering.** A long `wait:` used to
+end the run: the next screenshot waited for a reply that could not come, and
+nothing rejected it, so it read exactly like the game hanging. Long waits go in
+ten-second slices with a ping between them, and a closed socket now rejects
+what was outstanding. The command-line harness is the control here - it ran the
+same session to completion while the browser one looked stuck.
 
 ## Traps already paid for
 
