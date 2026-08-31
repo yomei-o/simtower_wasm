@@ -307,14 +307,21 @@ inferred. `shim/src/win32_ne.cpp` carries the same table for building the pack
 
 ## Next
 
-1. **Saving and loading a tower.** The port calls `GetSaveFileNameW` and then
-   ordinary file writes. A browser has no file system worth the name, so this
-   needs a decision: IDBFS behind the same paths, a download for save and the
-   existing file input for load, or a name list in `localStorage`. Whatever it
-   is, the port's own code should not have to know.
-2. **Hear the sound.** It plays; nobody has listened.
-3. **The rest of the dialogs.** 51 templates, and only a few have been opened.
-   The controls are all there; what has not been checked is each dialog.
+1. **Play it to two stars.** Everything checked is a one-star tower, and the
+   whole of the transport catalogue - elevators, escalators, the service
+   elevator - is in `TABL/1002`, which needs a population to reach. Offices
+   build and sit "For sale"; tenants arrive over game days. This wants a long
+   scripted session rather than another fix, and it is the one large piece of
+   the game nobody has seen run.
+2. **Hear the sound.** It plays - submitted 1, started 1, 50,300 frames at
+   startup - and nobody has listened. A second pair of ears is the only test.
+3. **The event dialogs.** The templates that arrive during play - the VIP, the
+   fire, the alerts - have never come up. `tools/menu_sweep.py` covers the ones
+   a menu can reach.
+4. **Compare against the native build pixel for pixel.** It builds and runs;
+   the only thing in the way was that a locked desktop screenshots black.
+   `drive.ps1` already sizes the native window to the canvas's own geometry, so
+   a diff is a short step from there.
 
 ## File map
 
