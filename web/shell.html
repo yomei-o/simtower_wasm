@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- One file at a fixed URL: a cached copy looks exactly like a fix that did
+     not work, so ask for a revalidation and show which build is loaded. -->
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>SimTower on WebAssembly</title>
 <style>
   html, body {
@@ -38,6 +42,10 @@
     white-space: pre-wrap;
   }
   #log .bad { color: #ff8f7a; }
+  #build {
+    position: fixed; left: 8px; bottom: 6px; font: 11px ui-monospace, monospace;
+    color: #5a5a62; pointer-events: none;
+  }
   #hud {
     position: fixed; right: 8px; bottom: 6px; font: 11px ui-monospace, monospace;
     color: #6a6a72; pointer-events: none;
@@ -66,6 +74,7 @@
           oncontextmenu="event.preventDefault()"></canvas></div>
   <div id="log"></div>
   <div id="hud"></div>
+  <div id="build">build BUILD_STAMP</div>
 
 <script>
   var statusEl = document.getElementById('status');
