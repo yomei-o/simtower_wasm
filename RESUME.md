@@ -57,6 +57,9 @@ shim answers 256 Win32 entry points.
   0.0-0.3% white at every step, and the only white left in it is the
   construction preview's own outline. Every Windows-menu toggle works, and the
   Finance window and About both draw in full.
+* **The page remembers the executable.** The player's own SIMTOWER.EXE is kept
+  in the same browser-private directory the towers are, so a second visit
+  starts the game with no file to find. There is a button to forget it.
 * **60 fps at 800x600**, and the page is 2.0 MB. Both came from setting a build
   type: nothing ever did, so every build until now was -O0, for a program that
   composes 276,000 pixels of world in C++ and blits them every frame.
@@ -238,6 +241,10 @@ same session to completion while the browser one looked stuck.
   hand activation back and forth until the stack runs out. The cost of leaving
   it alone is that the tool palette wears an active caption the real game gives
   to the main window, which is a strip of colour.
+* **IDBFS restores the directory asynchronously, and the restore replaces what
+  is in it.** Anything written before it finishes is thrown away. The page waits
+  on `Module.simtowerSavesReady`; `mountSaves()` waits for the same thing, and
+  has to run before anything looks in that directory at all.
 * **IDBFS asserts rather than throws where there is no IndexedDB**, and an
   assert aborts the runtime. Ask `typeof indexedDB` first. And `-lidbfs.js` is
   per target: with it missing the runtime keeps a stub that answers "IDBFS is no
