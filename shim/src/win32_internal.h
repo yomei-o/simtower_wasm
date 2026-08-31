@@ -150,6 +150,7 @@ struct Window {
     bool visible = false;
     bool enabled = true;
     bool destroyed = false;
+    bool topmost = false;              // the band it sits in, not a position
 
     std::vector<LONG_PTR> extra;       // cbWndExtra and the dialog's DWLP_*
     std::map<std::wstring, HANDLE> props;
@@ -168,6 +169,12 @@ struct Window {
     bool checked = false;
     std::vector<std::wstring> listItems;
     int listSelection = -1;
+    HFONT font = nullptr;              // WM_SETFONT, and what the control draws with
+    bool pressed = false;              // a button with the mouse held down on it
+    int caret = 0;                     // an edit's insertion point
+    int listTop = 0;                   // the first item a list shows
+    HWND dropList = nullptr;           // a dropped combo box's list, while it is up
+    HWND dropOwner = nullptr;          // and the combo box that list belongs to
 
     RECT invalid = {0, 0, 0, 0};       // pending InvalidateRect, client coords
     bool needsPaint = false;
@@ -203,6 +210,11 @@ struct State {
     std::map<std::wstring, WindowClass> classes;
 
     Surface screen;                    // what the canvas shows
+    // Bottom to top.  Everything shares one surface with no clipping between
+    // windows, so this is literally the order they are painted in, and reversed
+    // it is the order a click is offered to them.  All the topmost windows sit
+    // at the end, above every ordinary one, as they do in Windows.
+    std::vector<uintptr_t> zorder;
     std::vector<QueuedMessage> queue;
     std::vector<Timer> timers;
 
@@ -211,6 +223,10 @@ struct State {
     HWND capture = nullptr;
     HCURSOR cursor = nullptr;
     POINT mouse = {0, 0};
+    // What is held down, by virtual key code, high bit set.  The port asks
+    // GetAsyncKeyState whether the mouse button is still down while it drags,
+    // and an answer of "never" is a drag that cannot be told from a click.
+    unsigned char keys[256] = {};
     bool quitting = false;
     int exitCode = 0;
     DWORD lastError = 0;
@@ -251,6 +267,9 @@ std::string  utf16ToUtf8(const char16_t * s, int count = -1);
 
 /* Windows. */
 void  invalidate(Window & w, const RECT * r, bool erase);
+/* What a vanished window uncovered: the ground is repainted and everything
+   still standing that overlaps it is marked for redraw. */
+void  invalidateArea(const RECT & screenArea);
 void  paintPending();
 void  presentScreen();
 RECT  clientRect(const Window & w);
@@ -259,6 +278,12 @@ HWND  windowAtPoint(POINT screen);
 void  dispatchPending();
 void  post(HWND h, UINT msg, WPARAM w, LPARAM l);
 LRESULT send(HWND h, UINT msg, WPARAM w, LPARAM l);
+
+/* The built-in control classes, in win32_control.cpp.  A window with no
+   registered class of its own is one of these, and this answers for it. */
+LRESULT controlProc(HWND h, UINT msg, WPARAM w, LPARAM l);
+bool    controlHitTransparent(const Window & w);
+void    dialogSetInitialFocus(HWND dialog);
 
 /* Menus.  One row height serves the caption, the menu bar and a popup line,
    which is what Windows 3.1 did and what keeps the three lined up. */

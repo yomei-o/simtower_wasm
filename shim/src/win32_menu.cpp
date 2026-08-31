@@ -433,6 +433,4 @@ extern "C" UINT IsDlgButtonChecked(HWND dlg, int id) {
     return w && w->checked ? BST_CHECKED : BST_UNCHECKED;
 }
 
-extern "C" BOOL IsDialogMessageW(HWND, LPMSG) { return FALSE; }
-
 }   // namespace shim

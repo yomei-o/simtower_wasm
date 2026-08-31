@@ -153,10 +153,11 @@ HWND buildDialog(const DLGTEMPLATE * tmpl, HWND parent, DLGPROC proc,
         }
     }
 
-    // The dialog procedure gets to set up its controls before it is shown, and
-    // its return value decides whether the default focus is applied - which
-    // nothing here does yet.
-    send(dialog, WM_INITDIALOG, 0, init);
+    // The dialog procedure sets its controls up before it is shown, and its
+    // return value decides whether the default focus is applied on top of
+    // whatever focus it chose for itself - as Windows does.
+    const LRESULT wantsDefaultFocus = send(dialog, WM_INITDIALOG, 0, init);
+    if (wantsDefaultFocus) dialogSetInitialFocus(dialog);
     if (Window * again = window(dialog)) invalidate(*again, nullptr, true);
 
     if (!modal) return dialog;
@@ -169,7 +170,9 @@ HWND buildDialog(const DLGTEMPLATE * tmpl, HWND parent, DLGPROC proc,
         MSG msg;
         if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) { state().quitting = true; break; }
-            DispatchMessageW(&msg);
+            // Tab, Enter and Escape belong to the dialog, not to the control
+            // the key was aimed at; everything else goes through unchanged.
+            if (!IsDialogMessageW(dialog, &msg)) DispatchMessageW(&msg);
         } else {
             presentScreen();
             emscripten_sleep(16);

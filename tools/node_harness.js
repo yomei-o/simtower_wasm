@@ -4,7 +4,17 @@
 // in the shim: the point is to exercise the same code the page runs, not a
 // second path that might disagree with it.
 //
-//   node tools/node_harness.js build/node/simtower_node.js out.png [SIMTOWER.EXE]
+//   node tools/node_harness.js <module.js> out.png [SIMTOWER.EXE] [waitMs] [action...]
+//
+// Actions run in order after the wait, so a session can be played out from the
+// command line instead of by hand in a tab:
+//
+//   wait:<ms>  click:<x>,<y>  move:<x>,<y>  dbl:<x>,<y>  key:<name-or-char>
+//   shot:<file>  dump
+//
+// They go in through simtowerInjectMouse/simtowerInjectKey, which call the very
+// handlers the browser's listeners call - the point is to exercise the path the
+// page takes, not a second one that can quietly disagree with it.
 
 const fs = require('fs');
 const path = require('path');
@@ -15,6 +25,7 @@ const outputPath = process.argv[3] || 'frame.png';
 const executable = process.argv[4];
 // The game does a great deal at startup; the viewer does not.
 const waitMs = Number(process.argv[5] || 400);
+const actions = process.argv.slice(6);
 
 let presented = null;
 
@@ -112,14 +123,81 @@ function writePng(file, width, height, rgba) {
   // few frames of it.
   await new Promise((r) => setTimeout(r, waitMs));
 
-  console.log('canvas', canvas.width + 'x' + canvas.height);
-  if (!presented) {
-    console.log('nothing was presented');
-    process.exit(2);
+  // The wasm runs on its own timer, so every action is followed by a turn of
+  // the event loop; injecting two in the same tick would give the game no
+  // chance to act on the first.
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const save = (file) => {
+    if (!presented) {
+      console.log('nothing was presented');
+      return false;
+    }
+    writePng(file, presented.width, presented.height,
+             new Uint8Array(presented.data.buffer));
+    console.log('wrote', file, presented.width + 'x' + presented.height);
+    return true;
+  };
+
+  // The virtual key codes the shim maps back from a synthetic DOM code.
+  const KEYS = {
+    enter: 0x0D, escape: 0x1B, esc: 0x1B, tab: 0x09, space: 0x20,
+    backspace: 0x08, up: 0x26, down: 0x28, left: 0x25, right: 0x27,
+  };
+
+  const MOUSEMOVE = 8, MOUSEDOWN = 5, MOUSEUP = 6, DBLCLICK = 7;
+
+  for (const action of actions) {
+    const [verb, rest] = action.split(':');
+    const parts = (rest || '').split(',');
+    switch (verb) {
+      case 'wait':
+        await settle(Number(parts[0] || 100));
+        break;
+      case 'move':
+        Module._simtowerInjectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
+        await settle(50);
+        break;
+      case 'click':
+        // Move first: a control that tracks the pointer has to see it arrive
+        // before it is pressed, exactly as it would from a real mouse.
+        Module._simtowerInjectMouse(MOUSEMOVE, +parts[0], +parts[1], 0);
+        await settle(30);
+        Module._simtowerInjectMouse(MOUSEDOWN, +parts[0], +parts[1], 0);
+        await settle(60);
+        Module._simtowerInjectMouse(MOUSEUP, +parts[0], +parts[1], 0);
+        await settle(120);
+        break;
+      case 'dbl':
+        Module._simtowerInjectMouse(DBLCLICK, +parts[0], +parts[1], 0);
+        await settle(120);
+        break;
+      case 'key': {
+        const name = (rest || '').toLowerCase();
+        const vk = KEYS[name] !== undefined
+          ? KEYS[name]
+          : (rest.length === 1 ? rest.toUpperCase().charCodeAt(0) : 0);
+        const character = rest.length === 1 ? rest.charCodeAt(0) : 0;
+        Module._simtowerInjectKey(2, vk, character);      // KEYDOWN
+        await settle(40);
+        Module._simtowerInjectKey(3, vk, character);      // KEYUP
+        await settle(120);
+        break;
+      }
+      case 'shot':
+        save(rest);
+        break;
+      case 'dump':
+        Module._simtowerDumpWindows();
+        break;
+      default:
+        console.log('unknown action', action);
+        process.exit(3);
+    }
   }
-  writePng(outputPath, presented.width, presented.height,
-           new Uint8Array(presented.data.buffer));
-  console.log('wrote', outputPath, presented.width + 'x' + presented.height);
+
+  console.log('canvas', canvas.width + 'x' + canvas.height);
+  if (!save(outputPath)) process.exit(2);
 
   // The main loop keeps the event loop alive for ever, so the process has to be
   // told to stop.  Without this nothing is flushed and the run just hangs.

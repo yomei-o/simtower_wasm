@@ -52,6 +52,15 @@ POINT clientOrigin(const Window & w) {
                  w.rect.top + b + captionHeight(w) + menuBarHeight(w)};
 }
 
+// A child window is positioned in its parent's client coordinates, and
+// everything here works in screen coordinates, so the two are converted at the
+// two points where Windows converts them: creation, and every move.
+POINT parentClientOrigin(const Window & w) {
+    if (!(w.style & WS_CHILD)) return POINT{0, 0};
+    Window * p = window(w.parent);
+    return p ? clientOrigin(*p) : POINT{0, 0};
+}
+
 RECT clientRect(const Window & w) {
     const int b = borderWidth(w);
     RECT r{0, 0,
@@ -94,6 +103,82 @@ extern "C" ATOM RegisterClassExW(const WNDCLASSEXW * cls) {
 }
 
 
+/* ------------------------------------------------------------- z-order
+
+   Everything is drawn into one surface with no clipping between windows, so
+   which window is on top is decided entirely by which one is painted last.
+   Without this the order was the order they were created in, and the game's
+   command palette - created first and set topmost - was painted before the map
+   window that then covered it.                                              */
+
+static void zErase(HWND h) {
+    auto & z = state().zorder;
+    z.erase(std::remove(z.begin(), z.end(), (uintptr_t)h), z.end());
+}
+
+// A window and everything inside it, parent first: children are drawn over
+// their parent and travel with it.
+static void collectTree(HWND h, std::vector<uintptr_t> & out) {
+    out.push_back((uintptr_t)h);
+    if (Window * w = window(h))
+        for (HWND child : w->children) collectTree(child, out);
+}
+
+// Where the ordinary band ends, which is where a non-topmost window goes when
+// it is brought to the front.
+static size_t bandEnd(bool topmost) {
+    auto & z = state().zorder;
+    if (topmost) return z.size();
+    size_t end = 0;
+    for (size_t i = 0; i < z.size(); i++) {
+        Window * w = window((HWND)z[i]);
+        if (w && w->topmost) break;
+        end = i + 1;
+    }
+    return end;
+}
+
+static void zPlace(HWND h, HWND insertAfter) {
+    Window * w = window(h);
+    if (!w) return;
+    std::vector<uintptr_t> tree;
+    collectTree(h, tree);
+    for (uintptr_t entry : tree) zErase((HWND)entry);
+
+    auto & z = state().zorder;
+    size_t at;
+    if (insertAfter == HWND_BOTTOM) {
+        at = 0;
+    } else if (insertAfter == HWND_TOPMOST) {
+        w->topmost = true;
+        at = z.size();
+    } else if (insertAfter == HWND_NOTOPMOST) {
+        w->topmost = false;
+        at = bandEnd(false);
+    } else if (insertAfter == HWND_TOP) {
+        at = bandEnd(w->topmost);
+    } else {
+        auto it = std::find(z.begin(), z.end(), (uintptr_t)insertAfter);
+        at = it == z.end() ? bandEnd(w->topmost) : (size_t)(it - z.begin()) + 1;
+    }
+    z.insert(z.begin() + at, tree.begin(), tree.end());
+}
+
+static void zInsertOnCreate(HWND h, HWND parent) {
+    Window * p = window(parent);
+    if (!p) { zPlace(h, HWND_TOP); return; }
+    if (Window * w = window(h)) w->topmost = p->topmost;
+    // Directly above the parent and everything already inside it.
+    std::vector<uintptr_t> tree;
+    collectTree(parent, tree);
+    auto & z = state().zorder;
+    size_t at = 0;
+    for (size_t i = 0; i < z.size(); i++)
+        if (std::find(tree.begin(), tree.end(), z[i]) != tree.end()) at = i + 1;
+    z.insert(z.begin() + at, (uintptr_t)h);
+}
+
+
 /* -------------------------------------------------------------- windows */
 
 extern "C" HWND CreateWindowExW(DWORD exStyle, LPCWSTR cls, LPCWSTR name,
@@ -117,6 +202,15 @@ extern "C" HWND CreateWindowExW(DWORD exStyle, LPCWSTR cls, LPCWSTR name,
     if (y == CW_USEDEFAULT) y = 0;
     if (w == CW_USEDEFAULT || w <= 0) w = s.screen.width ? s.screen.width : 640;
     if (h == CW_USEDEFAULT || h <= 0) h = s.screen.height ? s.screen.height : 480;
+    if (style & WS_CHILD) {
+        // The caller gave parent-client coordinates.  Storing them as screen
+        // coordinates is what put every dialog control in the top-left corner.
+        if (Window * p = window(parent)) {
+            const POINT o = clientOrigin(*p);
+            x += o.x;
+            y += o.y;
+        }
+    }
     win.rect = RECT{x, y, x + w, y + h};
 
     auto it = s.classes.find(win.className);
@@ -136,6 +230,7 @@ extern "C" HWND CreateWindowExW(DWORD exStyle, LPCWSTR cls, LPCWSTR name,
     HWND hwnd = (HWND)handle;
 
     if (Window * p = window(parent)) p->children.push_back(hwnd);
+    zInsertOnCreate(hwnd, parent);
     if (!s.active) { s.active = hwnd; s.focus = hwnd; }
 
     CREATESTRUCTW create{};
@@ -172,7 +267,11 @@ extern "C" BOOL DestroyWindow(HWND hwnd) {
     send(hwnd, WM_DESTROY, 0, 0);
 
     State & s = state();
+    const RECT vacated = w->rect;
+    const bool wasVisible = w->visible;
+    zErase(hwnd);
     if (Window * again = window(hwnd)) again->destroyed = true;
+    if (wasVisible) invalidateArea(vacated);
     if (s.active == hwnd) s.active = nullptr;
     if (s.focus == hwnd) s.focus = nullptr;
     if (s.capture == hwnd) s.capture = nullptr;
@@ -189,8 +288,14 @@ extern "C" BOOL ShowWindow(HWND hwnd, int cmd) {
     if (!w) return FALSE;
     const bool was = w->visible;
     w->visible = (cmd != SW_HIDE);
-    if (w->visible) invalidate(*w, nullptr, true);
-    else if (Window * p = window(w->parent)) invalidate(*p, nullptr, true);
+    if (w->visible) {
+        invalidate(*w, nullptr, true);
+        for (HWND child : w->children)
+            if (Window * c = window(child))
+                if (c->visible) invalidate(*c, nullptr, true);
+    } else {
+        invalidateArea(w->rect);
+    }
     return was;
 }
 
@@ -220,29 +325,59 @@ extern "C" BOOL EnableWindow(HWND hwnd, BOOL enable) {
     return was;
 }
 
+// Moving a window moves what is inside it.  Children hold screen rectangles
+// here, so the delta has to be pushed down the tree; without it a resized
+// parent leaves its controls behind at their old absolute position.
+static void offsetDescendants(Window & w, int dx, int dy) {
+    if (!dx && !dy) return;
+    for (HWND child : w.children) {
+        Window * c = window(child);
+        if (!c) continue;
+        OffsetRect(&c->rect, dx, dy);
+        offsetDescendants(*c, dx, dy);
+    }
+}
+
 extern "C" BOOL MoveWindow(HWND hwnd, int x, int y, int w, int h, BOOL repaint) {
     Window * win = window(hwnd);
     if (!win) return FALSE;
+    const int clientX = x, clientY = y;
+    const POINT origin = parentClientOrigin(*win);
+    x += origin.x;
+    y += origin.y;
+    const RECT before = win->rect;
     win->rect = RECT{x, y, x + w, y + h};
-    send(hwnd, WM_MOVE, 0, MAKELPARAM(x, y));
+    offsetDescendants(*win, x - before.left, y - before.top);
+    if (win->visible && !EqualRect(&before, &win->rect)) invalidateArea(before);
+    send(hwnd, WM_MOVE, 0, MAKELPARAM(clientX, clientY));
     const RECT client = clientRect(*win);
     send(hwnd, WM_SIZE, 0, MAKELPARAM(client.right, client.bottom));
     if (repaint) invalidate(*win, nullptr, true);
     return TRUE;
 }
 
-extern "C" BOOL SetWindowPos(HWND hwnd, HWND, int x, int y, int w, int h,
-                             UINT flags) {
+extern "C" BOOL SetWindowPos(HWND hwnd, HWND insertAfter, int x, int y,
+                             int w, int h, UINT flags) {
     Window * win = window(hwnd);
     if (!win) return FALSE;
-    RECT r = win->rect;
-    if (!(flags & SWP_NOMOVE)) { r.right += x - r.left; r.bottom += y - r.top;
-                                 r.left = x; r.top = y; }
-    if (!(flags & SWP_NOSIZE)) { r.right = r.left + w; r.bottom = r.top + h; }
+    // x/y arrive in the same coordinates MoveWindow takes, so the current
+    // position has to be converted back out of screen space to stand in for
+    // them when SWP_NOMOVE says to keep it.
+    const POINT origin = parentClientOrigin(*win);
+    int nx = x, ny = y;
+    if (flags & SWP_NOMOVE) {
+        nx = win->rect.left - origin.x;
+        ny = win->rect.top - origin.y;
+    }
+    int nw = w, nh = h;
+    if (flags & SWP_NOSIZE) {
+        nw = win->rect.right - win->rect.left;
+        nh = win->rect.bottom - win->rect.top;
+    }
+    if (!(flags & SWP_NOZORDER)) zPlace(hwnd, insertAfter);
     if (flags & SWP_SHOWWINDOW) win->visible = true;
-    if (flags & SWP_HIDEWINDOW) win->visible = false;
-    return MoveWindow(hwnd, r.left, r.top, r.right - r.left, r.bottom - r.top,
-                      !(flags & SWP_NOREDRAW));
+    if (flags & SWP_HIDEWINDOW) { win->visible = false; invalidateArea(win->rect); }
+    return MoveWindow(hwnd, nx, ny, nw, nh, !(flags & SWP_NOREDRAW));
 }
 
 extern "C" BOOL GetClientRect(HWND hwnd, LPRECT r) {
@@ -318,7 +453,25 @@ extern "C" HWND SetActiveWindow(HWND hwnd) {
     return was;
 }
 extern "C" HWND GetActiveWindow(void) { return state().active; }
-extern "C" HWND GetDesktopWindow(void) { return nullptr; }
+extern "C" HWND GetDesktopWindow(void) {
+    // The port asks the desktop how big the screen is - to size the splash, and
+    // to centre every dialog.  Returning null made both of those measure zero,
+    // which is how the startup chooser ended up at (-130,-59).
+    static HWND desktop = nullptr;
+    State & s = state();
+    if (!window(desktop)) {
+        Window w{};
+        w.className = L"#32769";
+        w.style = 0;                  // no frame and no caption: it is the screen
+        w.visible = false;            // so it is never painted or hit-tested
+        const uintptr_t handle = s.allocate();
+        s.windows[handle] = std::move(w);
+        desktop = (HWND)handle;
+    }
+    // Answered from the screen rather than remembered, so a resize is followed.
+    window(desktop)->rect = RECT{0, 0, s.screen.width, s.screen.height};
+    return desktop;
+}
 extern "C" HWND GetTopWindow(HWND) { return nullptr; }
 
 extern "C" HWND GetParent(HWND hwnd) {
@@ -431,18 +584,20 @@ extern "C" BOOL EnumChildWindows(HWND hwnd, WNDENUMPROC proc, LPARAM param) {
 /* ------------------------------------------------------------- hit testing */
 
 HWND windowAtPoint(POINT screen) {
-    // Topmost first, and children before their parent, which is the order the
-    // windows were created in reversed.
+    // Top down: the first window the point lands in owns it, which is the
+    // paint order read backwards.
     State & s = state();
-    HWND best = nullptr;
-    for (auto & entry : s.windows) {
-        Window & w = entry.second;
-        if (w.destroyed || !w.visible) continue;
-        if (screen.x < w.rect.left || screen.x >= w.rect.right) continue;
-        if (screen.y < w.rect.top || screen.y >= w.rect.bottom) continue;
-        best = (HWND)entry.first;      // later handles are newer, so they win
+    for (size_t i = s.zorder.size(); i-- > 0; ) {
+        Window * w = window((HWND)s.zorder[i]);
+        if (!w || !w->visible) continue;
+        if (screen.x < w->rect.left || screen.x >= w->rect.right) continue;
+        if (screen.y < w->rect.top || screen.y >= w->rect.bottom) continue;
+        // Static text is transparent to the mouse, so a click on a label
+        // belongs to the dialog underneath it rather than to the label.
+        if (controlHitTransparent(*w)) continue;
+        return (HWND)s.zorder[i];
     }
-    return best;
+    return nullptr;
 }
 
 
@@ -610,13 +765,33 @@ void drawFrame(Window & w) {
     }
 }
 
+void invalidateArea(const RECT & area) {
+    State & s = state();
+    if (area.right <= area.left || area.bottom <= area.top) return;
+
+    // The ground first.  Windows 3.1's desktop is what was under everything,
+    // and with one shared surface there is nothing else left to reveal.
+    DeviceContext d{};
+    d.target = std::shared_ptr<Surface>(&s.screen, [](Surface *) {});
+    fillRect(d, area, fromColorref(GetSysColor(COLOR_BACKGROUND)));
+
+    // Then everything still standing that overlapped it.
+    for (auto & entry : s.windows) {
+        Window & w = entry.second;
+        if (w.destroyed || !w.visible) continue;
+        RECT overlap;
+        if (!IntersectRect(&overlap, &area, &w.rect)) continue;
+        invalidate(w, nullptr, true);
+    }
+}
+
 void paintPending() {
     State & s = state();
 
-    // A copy of the handles, because a WM_PAINT can create or destroy windows.
+    // A copy of the order, because a WM_PAINT can create or destroy windows.
     std::vector<HWND> order;
-    order.reserve(s.windows.size());
-    for (auto & entry : s.windows) order.push_back((HWND)entry.first);
+    order.reserve(s.zorder.size());
+    for (uintptr_t handle : s.zorder) order.push_back((HWND)handle);
 
     for (HWND hwnd : order) {
         Window * w = window(hwnd);
@@ -647,6 +822,9 @@ LRESULT send(HWND h, UINT msg, WPARAM w, LPARAM l) {
         if (handled) return (LRESULT)handled;
     }
     if (win->proc) return win->proc(h, msg, w, l);
+    // A class nobody registered is one of the built-in controls - BUTTON,
+    // STATIC, EDIT and the rest - and win32_control.cpp answers for it.
+    if (!win->controlClass.empty()) return controlProc(h, msg, w, l);
     return DefWindowProcW(h, msg, w, l);
 }
 
@@ -727,12 +905,13 @@ extern "C" BOOL PeekMessageW(LPMSG msg, HWND filter, UINT first, UINT last,
     const bool paintAllowed = (first == 0 && last == 0) ||
                               (first <= WM_PAINT && WM_PAINT <= last);
     if (paintAllowed) {
-        for (auto & entry : s.windows) {
-            Window & w = entry.second;
-            if (w.destroyed || !w.visible || !w.needsPaint) continue;
-            if (filter && (HWND)entry.first != filter) continue;
+        for (uintptr_t handle : s.zorder) {
+            Window * found = window((HWND)handle);
+            if (!found || !found->visible || !found->needsPaint) continue;
+            if (filter && (HWND)handle != filter) continue;
+            Window & w = *found;
             drawFrame(w);
-            msg->hwnd = (HWND)entry.first;
+            msg->hwnd = (HWND)handle;
             msg->message = WM_PAINT;
             msg->wParam = 0;
             msg->lParam = 0;
@@ -913,6 +1092,11 @@ extern "C" int  ShowCursor(BOOL) { return 0; }
 extern "C" BOOL DestroyCursor(HCURSOR) { return TRUE; }
 extern "C" BOOL DestroyIcon(HICON) { return TRUE; }
 extern "C" BOOL ClipCursor(const RECT *) { return TRUE; }
-extern "C" SHORT GetAsyncKeyState(int) { return 0; }
+extern "C" SHORT GetAsyncKeyState(int key) {
+    if (key < 0 || key > 255) return 0;
+    return state().keys[key] ? (SHORT)0x8000 : 0;
+}
+
+extern "C" SHORT GetKeyState(int key) { return GetAsyncKeyState(key); }
 
 }   // namespace shim

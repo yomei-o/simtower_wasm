@@ -826,6 +826,69 @@ typedef struct tagDLGITEMTEMPLATE {
 #define BN_CLICKED    0
 #define EN_CHANGE     0x0300
 
+#define LB_GETTEXTLEN 0x018A
+#define CB_GETLBTEXT  0x0148
+#define CB_GETCOUNT   0x0146
+#define CB_DELETESTRING 0x0144
+
+#define BM_GETSTATE   0x00F2
+#define BM_SETSTATE   0x00F3
+#define BM_CLICK      0x00F5
+#define BST_PUSHED    0x0004
+#define BST_FOCUS     0x0008
+
+/* The control styles the game's own dialogs use.  Counted across all 51 of
+   them: 77 buttons, all of them plain or default pushbuttons; 56 statics, all
+   of them text; 6 drop-down lists; 2 list boxes; 2 single-line edits; and one
+   vertical scrollbar.  There are no check boxes, radio buttons, group boxes or
+   owner-drawn controls anywhere in the game, so there are none here. */
+#define BS_PUSHBUTTON    0x00000000L
+#define BS_DEFPUSHBUTTON 0x00000001L
+#define BS_TYPEMASK      0x0000000FL
+
+#define SS_LEFT          0x00000000L
+#define SS_CENTER        0x00000001L
+#define SS_RIGHT         0x00000002L
+#define SS_SIMPLE        0x0000000BL
+#define SS_LEFTNOWORDWRAP 0x0000000CL
+#define SS_TYPEMASK      0x0000001FL
+#define SS_NOPREFIX      0x00000080L
+
+#define ES_LEFT          0x00000000L
+#define ES_CENTER        0x00000001L
+#define ES_RIGHT         0x00000002L
+#define ES_MULTILINE     0x00000004L
+#define ES_AUTOHSCROLL   0x00000080L
+#define ES_READONLY      0x00000800L
+
+#define LBS_NOTIFY       0x00000001L
+#define LBS_SORT         0x00000002L
+#define LBS_HASSTRINGS   0x00000040L
+
+#define CBS_SIMPLE       0x00000001L
+#define CBS_DROPDOWN     0x00000002L
+#define CBS_DROPDOWNLIST 0x00000003L
+#define CBS_TYPEMASK     0x00000003L
+
+#define SBS_HORZ         0x00000000L
+#define SBS_VERT         0x00000001L
+
+#define WM_GETTEXTLENGTH 0x000E
+#define WM_GETDLGCODE    0x0087
+#define WM_NEXTDLGCTL    0x0028
+#define DLGC_WANTARROWS  0x0001
+#define DLGC_WANTTAB     0x0002
+#define DLGC_WANTALLKEYS 0x0004
+#define DLGC_BUTTON      0x2000
+#define DLGC_DEFPUSHBUTTON 0x0010
+#define DLGC_UNDEFPUSHBUTTON 0x0020
+#define DLGC_STATIC      0x0100
+#define DLGC_HASSETSEL   0x0008
+
+#define HTTRANSPARENT    (-1)
+
+#define MAKELRESULT(low, high) ((LRESULT)MAKELONG(low, high))
+
 
 /* ------------------------------------------------------------- structures */
 
@@ -927,6 +990,9 @@ typedef struct _SYSTEMTIME {
 
 /* --------------------------------------------------- virtual key codes */
 
+#define VK_LBUTTON 0x01
+#define VK_RBUTTON 0x02
+#define VK_MBUTTON 0x04
 #define VK_BACK    0x08
 #define VK_TAB     0x09
 #define VK_RETURN  0x0D
@@ -1346,6 +1412,7 @@ BOOL    DestroyCursor(HCURSOR cursor);
 BOOL    DestroyIcon(HICON icon);
 BOOL    ClipCursor(const RECT * r);
 SHORT   GetAsyncKeyState(int key);
+SHORT   GetKeyState(int key);
 void    FatalAppExitA(UINT action, LPCSTR text);
 BOOL    MapWindowPoints(HWND from, HWND to, LPPOINT points, UINT count);
 BOOL    WriteProfileStringA(LPCSTR section, LPCSTR key, LPCSTR value);

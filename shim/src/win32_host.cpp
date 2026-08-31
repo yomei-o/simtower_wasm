@@ -14,6 +14,7 @@
 #include <emscripten.h>
 #include <emscripten/html5.h>
 
+#include <cstdio>
 #include <cstring>
 
 namespace shim {
@@ -110,6 +111,8 @@ EM_BOOL onMouse(int type, const EmscriptenMouseEvent * e, void *) {
             if (!msg) break;
             if (msg == WM_LBUTTONDOWN) g_leftDown = true;
             if (msg == WM_RBUTTONDOWN) g_rightDown = true;
+            s.keys[msg == WM_LBUTTONDOWN ? VK_LBUTTON
+                  : msg == WM_RBUTTONDOWN ? VK_RBUTTON : VK_MBUTTON] = 0x80;
             post(target, msg,
                  mouseKeys(e->shiftKey, e->ctrlKey, g_leftDown, g_rightDown), pos);
             break;
@@ -119,6 +122,8 @@ EM_BOOL onMouse(int type, const EmscriptenMouseEvent * e, void *) {
             if (!down) break;
             if (down == WM_LBUTTONDOWN) g_leftDown = false;
             if (down == WM_RBUTTONDOWN) g_rightDown = false;
+            s.keys[down == WM_LBUTTONDOWN ? VK_LBUTTON
+                  : down == WM_RBUTTONDOWN ? VK_RBUTTON : VK_MBUTTON] = 0;
             post(target, down + 1,     // ...DOWN + 1 is the matching ...UP
                  mouseKeys(e->shiftKey, e->ctrlKey, g_leftDown, g_rightDown), pos);
             break;
@@ -176,21 +181,101 @@ EM_BOOL onKey(int type, const EmscriptenKeyboardEvent * e, void *) {
     const int vk = virtualKey(e->code, e->key);
     if (!vk) return EM_FALSE;
 
+    s.keys[VK_SHIFT] = e->shiftKey ? 0x80 : 0;
+    s.keys[VK_CONTROL] = e->ctrlKey ? 0x80 : 0;
+
     if (type == EMSCRIPTEN_EVENT_KEYDOWN) {
+        s.keys[vk & 0xff] = 0x80;
         post(target, WM_KEYDOWN, (WPARAM)vk, 1);
         // A printable key also produces the character message the port reads
         // for typing; TranslateMessage is where Windows would do this.
         if (e->key[0] && !e->key[1])
             post(target, WM_CHAR, (WPARAM)(unsigned char)e->key[0], 1);
     } else if (type == EMSCRIPTEN_EVENT_KEYUP) {
+        s.keys[vk & 0xff] = 0;
         post(target, WM_KEYUP, (WPARAM)vk, 1);
     }
     // Swallowed so the page does not scroll under the game.
     return EM_TRUE;
 }
 
+
 }   // namespace
 
+
+/* ----------------------------------------------------- driving it headlessly
+
+   The command-line harness has no DOM, so its canvas stub never fires an event
+   and nothing can be clicked.  These feed the *same* handlers the browser's
+   listeners call - a synthesised EmscriptenMouseEvent through onMouse - rather
+   than posting messages directly, because a second input path would be a
+   second thing to get wrong and the browser's would stop being the one under
+   test.                                                                     */
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void simtowerInjectMouse(int type, int x, int y, int button) {
+    EmscriptenMouseEvent e{};
+    e.targetX = x;
+    e.targetY = y;
+    e.clientX = x;
+    e.clientY = y;
+    e.button = (unsigned short)button;
+    onMouse(type, &e, nullptr);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void simtowerInjectKey(int type, int vk, int character) {
+    EmscriptenKeyboardEvent e{};
+    // onKey resolves the virtual key from `code`/`key`, so a caller that knows
+    // the code passes it straight through as a one-character `key`.
+    if (character > 0 && character < 128) {
+        e.key[0] = (char)character;
+        e.key[1] = 0;
+    }
+    if (vk) {
+        // A synthetic code that virtualKey() maps back to exactly this vk.
+        switch (vk) {
+            case VK_RETURN: strcpy(e.code, "Enter"); break;
+            case VK_ESCAPE: strcpy(e.code, "Escape"); break;
+            case VK_TAB:    strcpy(e.code, "Tab"); break;
+            case VK_SPACE:  strcpy(e.code, "Space"); break;
+            case VK_BACK:   strcpy(e.code, "Backspace"); break;
+            case VK_UP:     strcpy(e.code, "ArrowUp"); break;
+            case VK_DOWN:   strcpy(e.code, "ArrowDown"); break;
+            case VK_LEFT:   strcpy(e.code, "ArrowLeft"); break;
+            case VK_RIGHT:  strcpy(e.code, "ArrowRight"); break;
+            default:
+                if (vk >= '0' && vk <= '9') sprintf(e.code, "Digit%c", vk);
+                else if (vk >= 'A' && vk <= 'Z') sprintf(e.code, "Key%c", vk);
+                break;
+        }
+    }
+    onKey(type, &e, nullptr);
+}
+
+// The window tree, for a harness that has to say what it is looking at rather
+// than guess from a picture.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void simtowerDumpWindows(void) {
+    State & s = state();
+    printf("windows: %d  active=%p focus=%p capture=%p\n",
+           (int)s.windows.size(), (void *)s.active, (void *)s.focus,
+           (void *)s.capture);
+    for (auto & entry : s.windows) {
+        Window & w = entry.second;
+        if (w.destroyed) continue;
+        printf("  %p %-10s cls=%-12s id=%-5d %s%s (%d,%d)-(%d,%d) style=%08x \"%s\"\n",
+               (void *)entry.first,
+               w.isDialog ? "[dialog]" : (w.controlClass.empty() ? "" : "[control]"),
+               toUtf8(w.className.c_str()).c_str(), w.id,
+               w.visible ? "vis" : "hid", w.enabled ? "" : "/dis",
+               (int)w.rect.left, (int)w.rect.top,
+               (int)w.rect.right, (int)w.rect.bottom,
+               (unsigned)w.style,
+               toUtf8(w.text.c_str()).c_str());
+    }
+    fflush(stdout);
+}
 
 void hostInit() {
     if (g_initialised) return;
