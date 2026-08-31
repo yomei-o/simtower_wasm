@@ -373,40 +373,95 @@ inferred. `shim/src/win32_ne.cpp` carries the same table for building the pack
   stub also needs `querySelector`, and the harness must `process.exit`
   explicitly or the main loop keeps the event loop alive and nothing flushes.
 
-## Next: what play-testing has reported and nobody has fixed
+## Next: what play-testing has reported
 
-These come from someone playing the deployed page, in the order they were
-raised. Reproduce with `tools/elevator_scenario.sh` or the harness rather than
-by reasoning about the code: every one of these looked like a different bug
-from the one it was.
+From someone playing the deployed page, newest first within each group.
+Reproduce with the harness rather than by reasoning about the code: every one
+of these so far looked like a different bug from the one it was.
 
-1. **The ceiling pattern is wrong.** The twelve rows above a facility are
-   currently taken from cell two of BITMAP/1000 (`kFloorCeilingCell` in
-   `render_original_direct_facilities`). That was chosen because it has to
-   match what an empty Floor carries along the same row, but BITMAP/1000 is
+### Open
+
+1. **The ceiling pattern is wrong.** The twelve rows above a facility come from
+   cell two of BITMAP/1000 (`kFloorCeilingCell` in
+   `render_original_direct_facilities`). That was chosen because the strip has
+   to match what an empty Floor carries along the same row, but BITMAP/1000 is
    96x36 of mostly flat colour bars and looks more like a legend than floor
-   art, and the player says the pattern is still wrong. Type 0 - Floor - is
-   *not* in `kDirectFacilityGraphics`, so the empty floor band is drawn
-   somewhere else; find that, and take the ceiling from the same source it
-   uses. The lobby is expected to differ from an ordinary ceiling: "the ceiling
-   above the lobby has its own pattern".
-2. **The tool palette icons do not match their entries.** Raised as "the
-   elevator cell shows a bed". Re-check this from scratch: the type numbers in
+   art. Type 0 - Floor - is *not* in `kDirectFacilityGraphics`, so the empty
+   floor band is drawn somewhere else; find that and take the ceiling from the
+   same source. The lobby is expected to differ: "the ceiling above the lobby
+   has its own pattern". Reported three times; the most wanted fix.
+2. **People inside offices and rooms move far too fast.**
+   `step_original_visible_facility_people` is advanced by
+   `advance_original_main_surface_state`, which is called once per simulation
+   frame from the idle loop (`native_main.cpp:1726`) **and again from
+   `rebuild_original_main_backing` whenever `advance_state` is set** - which a
+   repaint does. Anything that repaints more often than the original therefore
+   animates people faster. Check how many times the pass runs per game tick
+   before changing anything.
+3. **Extending a lobby, or dragging over one that is already there, garbles
+   it.** Reported twice. The construction preview has no drag state, and the
+   lobby drag has its own path (`begin_original_lobby_drag` /
+   `update_original_lobby_drag`).
+4. **Nobody rides, and the population stays zero.** Three floors of rooms
+   served by a shaft, run for a minute of wall time: `T` reports `pop=0` and
+   `E` reports the car never leaving its home floor. Tenants only move in where
+   transport reaches them, and only over game days, so this may be nothing but
+   patience - but it has never been observed either way.
+5. **The tool palette icons do not match their entries.** Raised as "the
+   elevator cell shows a bed". Re-check from the data: the type numbers in
    `TABL/1000` are not the names one would guess - **type 3 is a hotel single**
-   (BITMAP/1192 is a bed), not an office, and an earlier note in this file that
-   said otherwise came from a guessed name table, not from the data. Read the
-   names out of `kDirectFacilityGraphics` and the bitmaps themselves.
-3. **Nobody rides.** With three floors of rooms served by a shaft, population
-   stays zero and the cars never leave their home floor. Tenants only move in
-   where transport reaches them and only over game days, so this may be nothing
-   but patience - but it has never been observed, so it may equally be a bug.
-   `T` prints the population; `E` prints whether a car moved.
-4. **Dragging to extend a lobby draws wrongly**, and **re-placing a lobby over
-   an existing one** goes wrong. The construction preview has no drag state.
-5. **The two- and three-story lobby is Ctrl and Ctrl+Shift** on the *first*
-   lobby press (`begin_original_lobby_drag`), and only then - `old_height == 0`.
-   It works; it is just undiscoverable. The harness can hold both now:
-   `mods:ctrl` before a `drag:`.
+   (BITMAP/1192 is a bed), not an office - and an earlier note in this file
+   that said otherwise came from a guessed name table.
+
+### Reported, but the game is behaving as written
+
+Worth confirming against the original before "fixing" any of them. All three
+refuse **silently** - the constructor returns a zero status code, so no alert
+is shown and a click simply does nothing, which is what makes them read as
+broken. If the original does show a message here, that is the actual bug.
+
+* **The Metro Station cannot be built** (`build_original_metro_station`). It
+  wants floor index **2** - that is B8 - and floor index 0 (B10) must already
+  hold exactly one ordinary type-0 floor record. It is a three-part
+  constructor over floors 0..2, 30 cells wide, one per tower.
+* **The Cathedral cannot be built** (`build_original_cathedral`). It wants
+  floor index **113**, five parts over 109..113 (types 40 down to 36), 28
+  cells wide, one per tower. Floor index 113 is floor 104, so a tower that
+  does not already reach the top cannot even scroll there - the vertical
+  scroll range is clamped to what is built.
+* **The large (express) elevator cannot be built.** `build_original_elevator`
+  takes command type 42 as the express: internal type 0, capacity 42, six
+  cells wide - and above floor ten it is permitted only on the sky-lobby
+  sequence 24, 39, 54, 69, 84, 99. At floor ten it builds: verified in the
+  harness, `x=179 type=0 cap=42`. Service (command type 43, internal 2) builds
+  too.
+
+### Fixed since the last handover
+
+* Elevator cars are drawn and move (`4cd55f4`); shafts still extend
+  (`4cd55f4` again - the first attempt broke that).
+* Escalators and stairs no longer arrive in a white box (`ec9a8db`).
+* The digit keys no longer leave the palette unable to build (`60ad32b`), and
+  they refill the bank (`588f1c1`).
+* The two- and three-story lobby is **Ctrl** and **Ctrl+Shift** on the *first*
+  lobby press, and only then (`old_height == 0` in
+  `begin_original_lobby_drag`). It works; it is undiscoverable, not broken.
+  The harness can hold both: `mods:ctrl` before a `drag:`.
+
+### Driving the tool palette from a script
+
+This cost several runs. The catalogue grid starts at y=239 with 32-pixel rows
+and two 32-pixel columns centred on x=150 and x=182, so entry *n* is at
+`(150 or 182, 255 + 32 * (n / 2))`. A **group** cell opens a popup on the
+press, and **the popup is positioned so that the group's current choice sits
+over the cell** - so the row coordinates move as soon as something is picked.
+Press, `dump` to read the popup's rectangle, then release on the row wanted.
+Pressing and releasing without moving keeps the current choice.
+
+At six stars the entries are: 0 lobby/floor/escalator/service, 1 the three
+elevators, 2 condo, 3 office group, 4 type 9, 5 the retail group, 6 the group
+holding **Metro (31) and Cathedral (36)**, 7 the restaurant group. Metro and
+Cathedral are the last two rows of entry **6**, at (150,351) - not entry 5.
 
 ## Still unseen
 
