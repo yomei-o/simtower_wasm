@@ -10,7 +10,7 @@ REPO=${SIMTOWER_UPSTREAM:-https://github.com/yomei-o/simtower-native-windows-por
 # Pinned to the fork's floor-edges branch: the recovered floor-edge rectangles
 # had their width and height swapped and took the standard edge from a bank of
 # hotel rooms instead of the emergency stairs.  See that commit for the detail.
-SHA=ad5dd48c15cfc43463ab2c38efc2a1965b7354c8
+SHA=60ad32b1dd63241eff51b042958bfb8b378f4bad
 DEST=${1:-upstream}
 
 if [ -d "$DEST/.git" ]; then
