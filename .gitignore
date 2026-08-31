@@ -2,3 +2,4 @@ upstream/
 build/
 *.pack
 env.sh
+build-native/
