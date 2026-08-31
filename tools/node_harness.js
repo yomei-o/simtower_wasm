@@ -226,6 +226,19 @@ function writePng(file, width, height, rgba) {
       case 'dump':
         Module._simtowerDumpWindows();
         break;
+      case 'putfile': {
+        // Put a file into the wasm file system - a debugging tower, say - so a
+        // session can start from something the game would take an hour to
+        // reach on its own.
+        const [from, to] = rest.split('|');
+        try {
+          Module.FS.writeFile(to, new Uint8Array(fs.readFileSync(from)));
+          console.log('put', from, '->', to);
+        } catch (error) {
+          console.log('could not write', to, String(error));
+        }
+        break;
+      }
       case 'getfile': {
         // Copy a file out of the wasm file system - a saved tower, say - so a
         // browser run can be handed the same bytes.
