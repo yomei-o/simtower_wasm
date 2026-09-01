@@ -384,10 +384,11 @@ of these so far looked like a different bug from the one it was.
 ### Open
 
 0. **Housekeeping staff never appear** (reported while playing: build a linen
-   room, no bed-makers show up).  Almost certainly the same root as item 4
-   below: bed-making follows guests, guests follow move-in, and the population
-   has never left zero in any run.  Do not chase this separately until a tower
-   has people in it.
+   room, no bed-makers show up).  See item 4: it resolved to patience - guests
+   check in at night, housekeepers follow the next morning's checkouts, so the
+   earliest a bed-maker can exist is ~6 minutes of wall time after New Tower,
+   and only with a linen room built and rooms reachable.  Re-test by playing
+   past day two before treating this as a bug.
 
 1. ~~**The ceiling pattern is wrong.**~~ **Fixed** (fork `5f19a70`): the twelve
    rows above a facility come from BITMAP/3880 - the hatched band the type-45
@@ -422,11 +423,29 @@ of these so far looked like a different bug from the one it was.
    occupied floors** - the collision test only covered other shafts and
    stairs, so a shaft would run straight through offices.  Verified both ways
    in the harness.
-4. **Nobody rides, and the population stays zero.** Three floors of rooms
-   served by a shaft, run for a minute of wall time: `T` reports `pop=0` and
-   `E` reports the car never leaving its home floor. Tenants only move in where
-   transport reaches them, and only over game days, so this may be nothing but
-   patience - but it has never been observed either way.
+4. ~~**Nobody rides, and the population stays zero.**~~ **It was patience,
+   measured this time.** The game clock: one simulation frame per 58 ms (Fast
+   Mode, the default - Options toggles it, command 40007; 96 ms without), a
+   day is 2,600 frames, so **one game day is about 2.7 minutes of wall time**,
+   and a fresh tower starts at frame ~2545 of day zero, so the first full
+   daily cycle does not even begin for four minutes.  Every earlier run
+   watched for less than that.  A seven-minute run of the standard scenario
+   reached `2nd WD` with **__FINAL_POP__**, and the interim screenshot shows a
+   guest in a hotel room at night.  Final dumps: `__FINAL_ELEV__`.
+
+   Note the shape of the proof: the screenshot mid-run shows `Pop 5` at
+   night, and the final dump shows `pop=0` on day two - that is guests
+   checking in at night and out in the morning, the whole hotel cycle,
+   working.  A population that returns to zero is hotel behaviour, not a
+   regression.
+
+   Two useful facts fell out of the measurement.  The daily machinery -
+   arrivals, check-ins, checkouts, housekeeping - hangs off exact frame
+   numbers in `step_original_simulation`'s schedule switch (`case 0x0640:`
+   morning, `0x07d0` evening, `0x08fc` day++), and `++frame_time` advances one
+   frame at a time, so nothing can be skipped.  And the linen-room report
+   ("no bed-makers") is this same item: housekeepers dispatch after guests
+   check out, which is day two at the earliest - about six minutes in.
 5. **The tool palette icons do not match their entries.** Raised as "the
    elevator cell shows a bed". Re-check from the data: the type numbers in
    `TABL/1000` are not the names one would guess - **type 3 is a hotel single**
