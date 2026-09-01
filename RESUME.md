@@ -115,7 +115,9 @@ inspection in a shell that has *not* sourced it.
 
 ## The three ways to check it
 
-**Natively**, which is the reference. The port builds as an ordinary Windows
+**Natively**, which is the reference.  Confirmed working on the second
+machine too (w64devkit at `C:\prog\w64devkit`): builds and starts to the
+New/Load/Quit chooser. The port builds as an ordinary Windows
 program, and that settles any argument about whether a difference is the shim's
 fault:
 
@@ -381,7 +383,19 @@ of these so far looked like a different bug from the one it was.
 
 ### Open
 
-1. **The ceiling pattern is wrong.** The twelve rows above a facility come from
+0. **Housekeeping staff never appear** (reported while playing: build a linen
+   room, no bed-makers show up).  Almost certainly the same root as item 4
+   below: bed-making follows guests, guests follow move-in, and the population
+   has never left zero in any run.  Do not chase this separately until a tower
+   has people in it.
+
+1. ~~**The ceiling pattern is wrong.**~~ **Fixed** (fork `5f19a70`): the twelve
+   rows above a facility come from BITMAP/3880 - the hatched band the type-45
+   boundary tenants use, tiled on world x - not from BITMAP/1000 cell two,
+   which is a flat legend bar.  Settled against a screenshot of the real game:
+   the speckle, the double slab line and the 32-pixel vertical seam all match.
+   The reference screenshot lives at `simtower-a-1.png` (untracked).
+   Previously: The twelve rows above a facility come from
    cell two of BITMAP/1000 (`kFloorCeilingCell` in
    `render_original_direct_facilities`). That was chosen because the strip has
    to match what an empty Floor carries along the same row, but BITMAP/1000 is
@@ -398,10 +412,16 @@ of these so far looked like a different bug from the one it was.
    repaint does. Anything that repaints more often than the original therefore
    animates people faster. Check how many times the pass runs per game tick
    before changing anything.
-3. **Extending a lobby, or dragging over one that is already there, garbles
-   it.** Reported twice. The construction preview has no drag state, and the
-   lobby drag has its own path (`begin_original_lobby_drag` /
-   `update_original_lobby_drag`).
+3. ~~**Extending a lobby garbles it.**~~ **Fixed** (fork `5f19a70`): a
+   leftward extension leaves two adjacent type-24 records - the record surgery
+   keeps edge remainders by design and is exact, so the records are right -
+   and the renderer keyed the entrance tiles off each record's left edge,
+   drawing a second entrance mid-lobby.  The entrance is keyed to the
+   contiguous run now.  Verified: `24@161 24@177` in the data, one entrance in
+   the picture.  Also fixed nearby: **a shaft can no longer be extended through
+   occupied floors** - the collision test only covered other shafts and
+   stairs, so a shaft would run straight through offices.  Verified both ways
+   in the harness.
 4. **Nobody rides, and the population stays zero.** Three floors of rooms
    served by a shaft, run for a minute of wall time: `T` reports `pop=0` and
    `E` reports the car never leaving its home floor. Tenants only move in where
@@ -499,8 +519,12 @@ Cathedral are the last two rows of entry **6**, at (150,351) - not entry 5.
 
 ## Still unseen
 
-* **Hear the sound.** It plays - submitted 1, started 1, 50,300 frames at
-  startup - and nobody has listened. A second pair of ears is the only test.
+* **Hear the sound.** The likely reason nobody could: an AudioContext created
+  outside a user gesture starts suspended, and resume() from the game loop is
+  not a gesture, so every source was started into a context that could never
+  run - headless reports it running because headless has no autoplay policy.
+  It now resumes on the next pointerdown/keydown (sources scheduled while
+  suspended play once it resumes).  Deployed; still needs an ear.
 * **The event dialogs.** The templates that arrive during play - the VIP, the
   fire, the alerts - have never come up.
 * **Compare against the native build pixel for pixel.** It builds and runs; the
