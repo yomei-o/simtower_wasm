@@ -498,8 +498,9 @@ of these so far looked like a different bug from the one it was.
    and stacked at the same x; shafts extend repeatedly on clear floors.
    Beware in scripts: two same-spot presses within 500 ms now arrive as a
    double click - space palette re-presses 600 ms apart.  The player has since
-   confirmed both halves in the browser: escalator placement and button
-   clicks behave (build 0286656).
+   confirmed all of it in the browser on build 0286656: escalator placement,
+   button clicks, and repeated shaft extension - the 'second extension always
+   fails' report was this same input bug, not the construction rules.
 
 7. ~~**The 3-story lobby's spiral staircase sits in a white box.**~~ **Fixed**
    (fork `78fdc12`): CGPK/(4071+lobbyHeight) frames are overlays composed on
