@@ -40,6 +40,17 @@ EM_JS(int, jsWaveStart, (uintptr_t data, int bytes, int channels, int rate,
             if (!Context) return 0;
             audio = Module.simtowerAudio = { ctx: new Context(), next: 1,
                                              playing: {} };
+            // A context created outside a user gesture starts suspended and
+            // resume() from the game loop is not a gesture either, so nothing
+            // is ever audible even though every source is dutifully started.
+            // Sources scheduled while suspended play once the context resumes,
+            // so resuming on the next real gesture is the whole fix.
+            var resume = function () {
+                if (audio.ctx.state === 'suspended') audio.ctx.resume();
+            };
+            ['pointerdown', 'keydown', 'touchstart'].forEach(function (type) {
+                document.addEventListener(type, resume, true);
+            });
         }
         var ctx = audio.ctx;
         // A page has to be interacted with before it may make a sound; by the
