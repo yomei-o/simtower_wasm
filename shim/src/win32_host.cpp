@@ -15,6 +15,7 @@
 #include <emscripten/html5.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace shim {
@@ -86,10 +87,59 @@ WPARAM mouseKeys(int shift, int ctrl, bool leftDown, bool rightDown) {
 bool g_leftDown = false;
 bool g_rightDown = false;
 
-EM_BOOL onMouse(int type, const EmscriptenMouseEvent * e, void *) {
+// Where the canvas sits in the viewport, for events listened for on the
+// document (see hostInit): their coordinates arrive viewport-relative and the
+// game wants canvas pixels, which are 1:1 with CSS pixels here.
+EM_JS(int, jsCanvasLeft, (void), {
+    var canvas = document.getElementById('canvas');
+    return canvas ? (canvas.getBoundingClientRect().left | 0) : 0;
+});
+EM_JS(int, jsCanvasTop, (void), {
+    var canvas = document.getElementById('canvas');
+    return canvas ? (canvas.getBoundingClientRect().top | 0) : 0;
+});
+
+// Windows folds a rapid second press into WM_...DBLCLK instead of a second
+// ...DOWN, and MAINWNDPROC (1158:028c) depends on that: its double-click
+// branch never begins an interaction, so the second press of a fast double
+// click must not arrive as a build/extend attempt.  The browser instead
+// replays the full down/up pair and then fires dblclick as a fifth event, so
+// the DOM event is ignored entirely (it is not even listened for) and the
+// substitution is made here, per button, the way USER32 does it.
+double g_lastDownAt[3] = {-1e9, -1e9, -1e9};
+int g_lastDownX[3] = {0, 0, 0};
+int g_lastDownY[3] = {0, 0, 0};
+bool g_dblclkArmed[3] = {false, false, false};
+
+EM_BOOL onMouse(int type, const EmscriptenMouseEvent * e, void * fromDocument) {
     State & s = state();
-    s.mouse.x = e->targetX;
-    s.mouse.y = e->targetY;
+    if (fromDocument) {
+        // Moves and releases are listened for on the document so a drag that
+        // leaves the canvas keeps reporting and its release always lands -
+        // otherwise the button stays logically held forever.  Their
+        // coordinates are viewport-relative and need the canvas origin
+        // subtracted; canvas presses and injected events arrive
+        // canvas-relative already.
+        s.mouse.x = e->clientX - jsCanvasLeft();
+        s.mouse.y = e->clientY - jsCanvasTop();
+    } else {
+        s.mouse.x = e->targetX;
+        s.mouse.y = e->targetY;
+    }
+
+    // Button state before any early return: a release over no window at all
+    // must still let go, or every later move carries a stuck MK_LBUTTON.
+    if (type == EMSCRIPTEN_EVENT_MOUSEDOWN || type == EMSCRIPTEN_EVENT_MOUSEUP) {
+        const int down = buttonFromDom(e->button);
+        const bool pressed = type == EMSCRIPTEN_EVENT_MOUSEDOWN;
+        if (down == WM_LBUTTONDOWN) g_leftDown = pressed;
+        if (down == WM_RBUTTONDOWN) g_rightDown = pressed;
+        if (down) {
+            s.keys[down == WM_LBUTTONDOWN ? VK_LBUTTON
+                  : down == WM_RBUTTONDOWN ? VK_RBUTTON : VK_MBUTTON] =
+                pressed ? 0x80 : 0;
+        }
+    }
 
     // Capture wins, then the window under the pointer.  That is what makes a
     // drag keep going after the pointer leaves the window it started in.
@@ -116,19 +166,9 @@ EM_BOOL onMouse(int type, const EmscriptenMouseEvent * e, void *) {
                 break;
             }
             case EMSCRIPTEN_EVENT_MOUSEMOVE: frameMessage = WM_MOUSEMOVE; break;
-            case EMSCRIPTEN_EVENT_DBLCLICK: frameMessage = WM_LBUTTONDBLCLK; break;
             default: break;
         }
         if (frameMessage && nonClientMouse(target, frameMessage, s.mouse)) {
-            if (type == EMSCRIPTEN_EVENT_MOUSEUP) {
-                g_leftDown = g_leftDown && buttonFromDom(e->button) != WM_LBUTTONDOWN;
-                s.keys[VK_LBUTTON] = g_leftDown ? 0x80 : 0;
-            }
-            if (type == EMSCRIPTEN_EVENT_MOUSEDOWN &&
-                buttonFromDom(e->button) == WM_LBUTTONDOWN) {
-                g_leftDown = true;
-                s.keys[VK_LBUTTON] = 0x80;
-            }
             return EM_TRUE;
         }
     }
@@ -141,29 +181,34 @@ EM_BOOL onMouse(int type, const EmscriptenMouseEvent * e, void *) {
         case EMSCRIPTEN_EVENT_MOUSEDOWN: {
             const int msg = buttonFromDom(e->button);
             if (!msg) break;
-            if (msg == WM_LBUTTONDOWN) g_leftDown = true;
-            if (msg == WM_RBUTTONDOWN) g_rightDown = true;
-            s.keys[msg == WM_LBUTTONDOWN ? VK_LBUTTON
-                  : msg == WM_RBUTTONDOWN ? VK_RBUTTON : VK_MBUTTON] = 0x80;
-            post(target, msg,
+            // A second press soon enough and close enough becomes ...DBLCLK,
+            // but only for a window whose class asked (CS_DBLCLKS), exactly
+            // as USER32 decides it.  A third press is a plain ...DOWN again.
+            const int button = e->button < 3 ? e->button : 0;
+            const double now = emscripten_get_now();
+            bool doubled = false;
+            if (g_dblclkArmed[button] && now - g_lastDownAt[button] <= 500.0 &&
+                std::abs(s.mouse.x - g_lastDownX[button]) <= 4 &&
+                std::abs(s.mouse.y - g_lastDownY[button]) <= 4) {
+                const auto registered = s.classes.find(w->className);
+                doubled = registered != s.classes.end() &&
+                          (registered->second.style & CS_DBLCLKS) != 0U;
+            }
+            g_dblclkArmed[button] = !doubled;
+            g_lastDownAt[button] = now;
+            g_lastDownX[button] = s.mouse.x;
+            g_lastDownY[button] = s.mouse.y;
+            post(target, doubled ? msg + 2 : msg,   // ...DOWN + 2 is ...DBLCLK
                  mouseKeys(e->shiftKey, e->ctrlKey, g_leftDown, g_rightDown), pos);
             break;
         }
         case EMSCRIPTEN_EVENT_MOUSEUP: {
             const int down = buttonFromDom(e->button);
             if (!down) break;
-            if (down == WM_LBUTTONDOWN) g_leftDown = false;
-            if (down == WM_RBUTTONDOWN) g_rightDown = false;
-            s.keys[down == WM_LBUTTONDOWN ? VK_LBUTTON
-                  : down == WM_RBUTTONDOWN ? VK_RBUTTON : VK_MBUTTON] = 0;
             post(target, down + 1,     // ...DOWN + 1 is the matching ...UP
                  mouseKeys(e->shiftKey, e->ctrlKey, g_leftDown, g_rightDown), pos);
             break;
         }
-        case EMSCRIPTEN_EVENT_DBLCLICK:
-            post(target, WM_LBUTTONDBLCLK,
-                 mouseKeys(e->shiftKey, e->ctrlKey, g_leftDown, g_rightDown), pos);
-            break;
         default: break;
     }
     return EM_TRUE;
@@ -344,10 +389,18 @@ void hostInit() {
     // preventing default stops the click from focusing it - so keys aimed at
     // the canvas never arrive.  This is the exact trap the OpenSkyscraper port
     // fell into.
-    emscripten_set_mousemove_callback("#canvas", nullptr, 0, onMouse);
+    // Presses start on the canvas, but moves and releases are listened for on
+    // the document: a drag that leaves the canvas must keep reporting, and
+    // above all its release must arrive, or the game is left holding a button
+    // that was let go outside.  The non-null userData marks the events whose
+    // coordinates are viewport-relative.  There is deliberately no dblclick
+    // listener - onMouse synthesises WM_...DBLCLK from the second press the
+    // way USER32 does, and the browser's extra fifth event would double it.
+    emscripten_set_mousemove_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT,
+                                      (void *)1, 0, onMouse);
     emscripten_set_mousedown_callback("#canvas", nullptr, 0, onMouse);
-    emscripten_set_mouseup_callback("#canvas", nullptr, 0, onMouse);
-    emscripten_set_dblclick_callback("#canvas", nullptr, 0, onMouse);
+    emscripten_set_mouseup_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT,
+                                    (void *)1, 0, onMouse);
     emscripten_set_wheel_callback("#canvas", nullptr, 0, onWheel);
     emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, 0, onKey);
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, 0, onKey);
