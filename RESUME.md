@@ -383,12 +383,28 @@ of these so far looked like a different bug from the one it was.
 
 ### Open
 
-0. **Housekeeping staff never appear** (reported while playing: build a linen
-   room, no bed-makers show up).  See item 4: it resolved to patience - guests
-   check in at night, housekeepers follow the next morning's checkouts, so the
-   earliest a bed-maker can exist is ~6 minutes of wall time after New Tower,
-   and only with a linen room built and rooms reachable.  Re-test by playing
-   past day two before treating this as a bug.
+0. ~~**Housekeeping staff never appear**~~ **Resolved: it is the original's
+   own rule - maids ride only the Service elevator.**  The route scorer's gate
+   `((elevator.type != 2U) != tracked_route)` (original_people.cpp, exact
+   11b0:11af) sends untracked staff routes exclusively to type-2 shafts, and
+   housekeeping requests untracked routes.  A linen room whose maids cannot
+   reach the hotel floors by service elevator (or stairs) leaves them parked
+   at home forever: measured with debug key `H`, a maid sat at state=0 with
+   the dirty room found (`room_floor=11`) for five straight minutes while the
+   rooms stayed dirty (0x28/0x30, twenty samples per room).  Rebuilt the same
+   tower with a Service elevator beside the standard one and the whole cycle
+   ran: maid state 0 -> 2 (cleaning, day-1 morning), a rider visible in the
+   service car, and 0x28 appeared exactly once across the run before being
+   cleaned away.  Everything else was already correct - six type-15 people are
+   created at activation and stepped every frame in the shared people pass.
+
+   Where things live, for replaying it: the linen room is the **fourth row of
+   the hotel group** (icon 23 -> type 15); the Service elevator is the
+   **second row of the elevator group** (icon 5 -> command 43 -> elevator
+   type 2).  Debug key `H` dumps every type-15 person (state, target room,
+   home) plus every hotel room's status byte; dirty is 0x28/0x30.  One more
+   harness gotcha: an extension drag's START floor becomes the new top, so
+   reaching floor 12 from a 1F shaft takes two drags (489->453 then 453->417).
 
 1. ~~**The ceiling pattern is wrong.**~~ **Fixed** (fork `5f19a70`): the twelve
    rows above a facility come from BITMAP/3880 - the hatched band the type-45
