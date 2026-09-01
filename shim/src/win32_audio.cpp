@@ -78,6 +78,10 @@ EM_JS(int, jsWaveStart, (uintptr_t data, int bytes, int channels, int rate,
 
         var source = ctx.createBufferSource();
         source.buffer = buffer;
+        // A source makes no sound until it is wired to the speakers - started
+        // unconnected it still runs, counts, and fires onended, which is why
+        // every headless counter said this worked while nothing was audible.
+        source.connect(ctx.destination);
         if (loops > 1) {
             source.loop = true;
             source.start(0, 0, buffer.duration * loops);
