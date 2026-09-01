@@ -459,10 +459,12 @@ of these so far looked like a different bug from the one it was.
    blit indexes them `(icon%8)*32, (icon/8)*32`, and TABL/1000[icon] is the
    build type.  At three stars: pos0 icon0 lobby(24), pos1 icon4 elevator(1)
    group {4,5,6}, pos2 icon7 office(7), pos3 icon8 hotel single(3) group
-   {8,9,10,23}, pos4 icon24 condo(9), pos5 icon11 retail(12) group {11..15},
-   pos6 icon16 parking(44) group {16,17,18}, pos7 icon21 security(14) group
-   {21,22}.  Icon 4 - the standard elevator's brown doors - is easy to misread
-   as furniture at one-to-one scale; that may be the whole report.
+   {8,9,10,23} - **and 23 is Housekeeping (type 15): the linen room lives in
+   the hotel group, fourth row, not with Security** - pos4 icon24 condo(9),
+   pos5 icon11 retail(12) group {11..15}, pos6 icon16 parking(44) group
+   {16=ramp,17=space(11),18=recycling(20)}, pos7 icon21 security(14) group
+   {21,22=Medical(13)}.  Icon 4 - the standard elevator's brown doors - is easy
+   to misread as furniture at one-to-one scale; that may be the whole report.
 
 ### Reported, but the game is behaving as written
 
