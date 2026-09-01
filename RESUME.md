@@ -73,7 +73,7 @@ shim answers 256 Win32 entry points.
 
 | | |
 |---|---|
-| Sound heard | It plays - submitted 1, started 1, context running, 50,300 frames of WAVE/20000 at startup - but nobody has listened. The game asks for no other sound in a one-star tower. |
+| ~~Sound heard~~ | **Heard, player-confirmed** (build ca1d245). Three separate faults stacked: the suspended-context autoplay policy (resume on next gesture), a source never connected to ctx.destination (started, counted, inaudible), and - the deep one - the shim almost never sent WM_ACTIVATE, so after the first dialog closed the game's idle loop read a false activation latch and deactivated its own mixer for good: exactly one buffer was ever submitted. Activation now announces itself Windows-style; submissions went to one per construction sound. |
 | The other dialogs | 51 templates; the startup chooser, Finance, About, the message boxes and the command selector have been opened. The rest arrive with events during play. |
 | Long status messages overflow | The info bar's status field is 262 pixels and the port does not clip to it, so a message wider than that runs under the Fund panel. The original fits because its font is narrower than the baked one; there is nothing to clip without clipping the port's own drawing. |
 | A tower with people in it | Everything driven so far has a population of zero. Offices and hotel rooms build and stay empty; tenants move in over game days, and only where transport reaches them. Nothing has yet watched a person walk, queue, or ride. The digit debug keys remove the rating wall, so this is now a matter of playing long enough rather than of reaching two stars. |
@@ -596,12 +596,10 @@ Cathedral are the last two rows of entry **6**, at (150,351) - not entry 5.
 
 ## Still unseen
 
-* **Hear the sound.** The likely reason nobody could: an AudioContext created
-  outside a user gesture starts suspended, and resume() from the game loop is
-  not a gesture, so every source was started into a context that could never
-  run - headless reports it running because headless has no autoplay policy.
-  It now resumes on the next pointerdown/keydown (sources scheduled while
-  suspended play once it resumes).  Deployed; still needs an ear.
+* ~~**Hear the sound.**~~ Heard - see "What is still missing" above for the
+  three stacked faults.  The harness `sound` action prints the submission
+  counter, which is what separates 'silent because headless' from 'silent for
+  real'.
 * **The event dialogs.** The templates that arrive during play - the VIP, the
   fire, the alerts - have never come up.
 * **Compare against the native build pixel for pixel.** It builds and runs; the
