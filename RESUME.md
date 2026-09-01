@@ -482,6 +482,31 @@ of these so far looked like a different bug from the one it was.
    {21,22=Medical(13)}.  Icon 4 - the standard elevator's brown doors - is easy
    to misread as furniture at one-to-one scale; that may be the whole report.
 
+6. ~~**Escalators cannot be placed on the second floor or above / phantom
+   clicks and broken hold-drag on elevators.**~~ **Fixed and closed by the
+   player** (shim `b2e66ac`, fork `78fdc12`): the cause was the browser mouse
+   bridge, not construction rules.  The DOM replays a double click as
+   down/up/down/up plus a fifth dblclick event, where USER32 folds the second
+   press into WM_...DBLCLK and MAINWNDPROC's double-click branch never begins
+   an interaction - so fast successive presses fired spurious build/extend
+   attempts and popup selections landed on the palette underneath.  onMouse
+   now performs the USER32 substitution itself (500 ms / 4 px, CS_DBLCLKS
+   gated) and no longer listens for dblclick; moves and releases moved to the
+   document so a drag leaving the canvas cannot lose its mouseup and leave a
+   button logically held forever.  Construction itself was verified fine in
+   the harness: escalators place on bare floor at any story, between offices,
+   and stacked at the same x; shafts extend repeatedly on clear floors.
+   Beware in scripts: two same-spot presses within 500 ms now arrive as a
+   double click - space palette re-presses 600 ms apart.
+
+7. ~~**The 3-story lobby's spiral staircase sits in a white box.**~~ **Fixed**
+   (fork `78fdc12`): CGPK/(4071+lobbyHeight) frames are overlays composed on
+   an index-zero field, and CLUT/1000 resolves index zero to white.
+   draw_cgpk_tile grew a transparent mode used only by the tall-transport
+   renderer; lobby banks stay opaque.  Verified for both the tall stair
+   (shape 5) and tall escalator (shape 4): marble, chandeliers and riders all
+   show through.
+
 ### Reported, but the game is behaving as written
 
 Worth confirming against the original before "fixing" any of them. Most do say
