@@ -452,10 +452,17 @@ of these so far looked like a different bug from the one it was.
    ("no bed-makers") is this same item: housekeepers dispatch after guests
    check out, which is day two at the earliest - about six minutes in.
 5. **The tool palette icons do not match their entries.** Raised as "the
-   elevator cell shows a bed". Re-check from the data: the type numbers in
-   `TABL/1000` are not the names one would guess - **type 3 is a hotel single**
-   (BITMAP/1192 is a bed), not an office - and an earlier note in this file
-   that said otherwise came from a guessed name table.
+   elevator cell shows a bed".  **Verified correct end to end from the data**,
+   so treat this as unconfirmed until someone reproduces it with a screenshot:
+   TABL/(1000+rating) encodes each entry as TABM<<8|choice, the TABM word is
+   the icon number, BITMAP/300/301/302 are 8-column grids of 32x32 icons, the
+   blit indexes them `(icon%8)*32, (icon/8)*32`, and TABL/1000[icon] is the
+   build type.  At three stars: pos0 icon0 lobby(24), pos1 icon4 elevator(1)
+   group {4,5,6}, pos2 icon7 office(7), pos3 icon8 hotel single(3) group
+   {8,9,10,23}, pos4 icon24 condo(9), pos5 icon11 retail(12) group {11..15},
+   pos6 icon16 parking(44) group {16,17,18}, pos7 icon21 security(14) group
+   {21,22}.  Icon 4 - the standard elevator's brown doors - is easy to misread
+   as furniture at one-to-one scale; that may be the whole report.
 
 ### Reported, but the game is behaving as written
 
