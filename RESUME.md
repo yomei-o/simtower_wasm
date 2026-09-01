@@ -405,14 +405,19 @@ of these so far looked like a different bug from the one it was.
    floor band is drawn somewhere else; find that and take the ceiling from the
    same source. The lobby is expected to differ: "the ceiling above the lobby
    has its own pattern". Reported three times; the most wanted fix.
-2. **People inside offices and rooms move far too fast.**
-   `step_original_visible_facility_people` is advanced by
-   `advance_original_main_surface_state`, which is called once per simulation
-   frame from the idle loop (`native_main.cpp:1726`) **and again from
-   `rebuild_original_main_backing` whenever `advance_state` is set** - which a
-   repaint does. Anything that repaints more often than the original therefore
-   animates people faster. Check how many times the pass runs per game tick
-   before changing anything.
+2. **People inside offices and rooms move far too fast.**  The earlier
+   hypothesis is half wrong, checked against the pass plans: an ordinary
+   repaint does NOT double-advance - `window_paint`, `preview_repaint` and
+   `palette_repaint` all carry `advance_visible_facility_people = false`, so
+   the defaulted `advance_state=true` inside `paint_known_original_surface`
+   is a no-op for people.  What DOES advance them outside the simulation
+   frame is **scrolling**: the camera/scrollbar refresh paths rebuild with
+   `rebuild_with_sky` / `rebuild_without_sky` (native_main.cpp 1913/1947,
+   5502, 8290, 8329), whose plans advance people once per scroll step, so
+   people accelerate while the view is scrolled.  Open question: the
+   original's 1080:0a1e rebuild includes 1038:050e, so it may do exactly the
+   same.  Compare against the real game while scrolling before changing
+   anything.
 3. ~~**Extending a lobby garbles it.**~~ **Fixed** (fork `5f19a70`): a
    leftward extension leaves two adjacent type-24 records - the record surgery
    keeps edge remainders by design and is exact, so the records are right -
