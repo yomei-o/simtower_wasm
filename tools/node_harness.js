@@ -243,6 +243,13 @@ function writePng(file, width, height, rgba) {
       case 'dump':
         Module._simtowerDumpWindows();
         break;
+      case 'sound':
+        // How many PCM buffers the game submitted to waveOutWrite.  Node has
+        // no AudioContext, so nothing is audible here - but a game that has
+        // deactivated its own mixer stops submitting, and this counter is the
+        // difference between 'silent because headless' and 'silent for real'.
+        console.log('[sound] writes=' + (Module.simtowerWaveWrites || 0));
+        break;
       case 'putfile': {
         // Put a file into the wasm file system - a debugging tower, say - so a
         // session can start from something the game would take an hour to

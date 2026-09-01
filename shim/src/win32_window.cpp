@@ -282,8 +282,14 @@ extern "C" HWND CreateWindowExW(DWORD exStyle, LPCWSTR cls, LPCWSTR name,
     if (Window * created = window(hwnd))
         if (created->visible) invalidate(*created, nullptr, true);
 
+    // The first window became active silently above, before its WM_CREATE ran;
+    // announce it now, the way Windows delivers the initial activation.
+    if (s.active == hwnd) send(hwnd, WM_ACTIVATE, 1, 0);
+
     return hwnd;
 }
+
+void activateWindow(HWND hwnd);   // defined with SetActiveWindow below
 
 extern "C" BOOL DestroyWindow(HWND hwnd) {
     Window * w = window(hwnd);
@@ -309,6 +315,24 @@ extern "C" BOOL DestroyWindow(HWND hwnd) {
         auto & c = p->children;
         c.erase(std::remove(c.begin(), c.end(), hwnd), c.end());
         invalidate(*p, nullptr, true);
+    }
+    // Destroying the active window hands activation back - to its parent when
+    // there is one, else to whatever tops the z-order - with the WM_ACTIVATE
+    // Windows would send.  Left silently null, the port's main window never
+    // hears it is active again after its first dialog closes, and its idle
+    // loop keeps the game's own audio deactivated from then on.
+    if (!s.active) {
+        HWND next = window(w->parent) ? w->parent : nullptr;
+        if (!next) {
+            for (auto it = s.zorder.rbegin(); it != s.zorder.rend(); ++it) {
+                Window * candidate = window((HWND)*it);
+                if (candidate && candidate->visible && !candidate->destroyed) {
+                    next = (HWND)*it;
+                    break;
+                }
+            }
+        }
+        if (next) activateWindow(next);
     }
     return TRUE;
 }
@@ -475,11 +499,24 @@ extern "C" HWND SetFocus(HWND hwnd) {
 }
 extern "C" HWND GetFocus(void) { return state().focus; }
 
+// Activation with the messages Windows sends: the window losing it hears
+// WM_ACTIVATE(WA_INACTIVE) first, then the gaining one hears WA_ACTIVE.  The
+// port's idle loop reconciles its sound mixer against the latch its main
+// window procedure keeps from these - a silent handover leaves that latch
+// false and the game deactivates its own audio after the very first sound.
+void activateWindow(HWND hwnd) {
+    State & s = state();
+    if (s.active == hwnd) return;
+    HWND was = s.active;
+    s.active = hwnd;
+    if (window(was)) send(was, WM_ACTIVATE, 0, 0);
+    if (window(hwnd)) send(hwnd, WM_ACTIVATE, 1, 0);
+}
+
 extern "C" HWND SetActiveWindow(HWND hwnd) {
     State & s = state();
     HWND was = s.active;
-    s.active = hwnd;
-    if (hwnd) send(hwnd, WM_ACTIVATE, 1, 0);
+    activateWindow(hwnd);
     return was;
 }
 extern "C" HWND GetActiveWindow(void) { return state().active; }
