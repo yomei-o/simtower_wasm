@@ -497,7 +497,9 @@ of these so far looked like a different bug from the one it was.
    the harness: escalators place on bare floor at any story, between offices,
    and stacked at the same x; shafts extend repeatedly on clear floors.
    Beware in scripts: two same-spot presses within 500 ms now arrive as a
-   double click - space palette re-presses 600 ms apart.
+   double click - space palette re-presses 600 ms apart.  The player has since
+   confirmed both halves in the browser: escalator placement and button
+   clicks behave (build 0286656).
 
 7. ~~**The 3-story lobby's spiral staircase sits in a white box.**~~ **Fixed**
    (fork `78fdc12`): CGPK/(4071+lobbyHeight) frames are overlays composed on
